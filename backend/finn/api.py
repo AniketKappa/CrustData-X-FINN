@@ -76,7 +76,7 @@ def _startup() -> None:
     one at a time, so opening them is instant. FINN_PREBUILD_RESEARCH=0 turns this off."""
     import time as _t
     _safe(_do_refresh)
-    n = int(os.environ.get("FINN_PREBUILD_RESEARCH", "4"))
+    n = int(os.environ.get("FINN_PREBUILD_RESEARCH", "2"))
     if n <= 0 or not (pipe.research and pipe.research.llm and pipe.research.llm.available):
         return
     for c in pipe.portfolio.research[:n]:
@@ -287,6 +287,13 @@ def research_start(symbol: str, request: Request, force: bool = False) -> dict:
 @app.get("/v1/research/{symbol}")
 def research_status(symbol: str) -> dict:
     return pipe.research.status(_sym(symbol))
+
+
+@app.post("/v1/research/{symbol}/retry")
+def research_retry(symbol: str, request: Request, section: str = Query(..., pattern="^(business|narrative|bull_bear|guidance)$")) -> dict:
+    """Re-write one section whose model call failed (e.g. the free per-minute limit was hit)."""
+    _limit(request, "ask")
+    return pipe.research.retry_section(_sym(symbol), section)
 
 
 class AskRequest(BaseModel):

@@ -38,7 +38,7 @@ ROUTES: dict[str, list[tuple[str, str]]] = {
 }
 TPM = {"openai/gpt-oss-20b": 8000, "openai/gpt-oss-120b": 8000, "llama-3.3-70b-versatile": 12000,
        "llama-3.1-8b-instant": 6000, "openrouter/free": 100000}
-MAX_WAIT_S = 25.0          # wait this long at most for a slot's minute budget before trying the next slot
+MAX_WAIT_S = 45.0          # wait this long at most for a model's minute budget to free up (Groq budgets reset each minute)
 
 
 def est_tokens(text: str) -> int:

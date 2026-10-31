@@ -153,7 +153,7 @@ def write_brief(person: Person, llm: Optional[LLM]) -> Optional[str]:
               f"{person.role or 'executive'} of {person.company}, for an investor. Use ONLY the numbered sources below; "
               f"put the source number in brackets after each sentence, like [2]. If the sources don't say something, "
               f"leave it out. No opinions, no adjectives like 'renowned'.\n\nSources:\n{numbered}")
-    out = llm(prompt)
+    out = llm.complete(prompt, max_tokens=400, route="fast") if hasattr(llm, "complete") else llm(prompt)
     if not out:
         return None
     sents = [s for s in re.split(r"(?<=[.!?])\s+(?=[A-Z])", out.strip()) if s]

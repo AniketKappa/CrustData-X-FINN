@@ -118,3 +118,13 @@ def test_ask_handles_small_talk_off_topic_and_follow_ups():
     assert hi["status"] == "greeting" and not hi["claims"] and hi["follow_ups"]
     fu = p.research.ask("FXCABLES", "why?", [{"question": "What happened to EBITDA margin?", "answer": "It declined."}])
     assert fu["status"] in ("ok", "not_found")
+
+
+def test_retry_one_section_updates_saved_dossier():
+    p = _pipe()
+    job = p.research.build("FXCABLES")
+    job["sections"]["bull_bear"] = {"bull": [], "bear": [], "status": "llm_failed", "message": "busy"}
+    p.store.put_research("r2:FXCABLES", __import__("json").dumps(job, default=str))
+    st = p.research.retry_section("FXCABLES", "bull_bear")
+    assert st["sections"]["bull_bear"].get("status") != "llm_failed" and st["sections"]["bull_bear"]["bull"]
+    assert p.research.status("FXCABLES")["sections"]["bull_bear"]["bull"]

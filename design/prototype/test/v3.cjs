@@ -116,26 +116,39 @@ const B = process.env.BASE || 'http://localhost:8800/';
   const rposts = []; r.on('request', (q) => { if (q.method() === 'POST') rposts.push(new URL(q.url()).pathname); });
   await r.goto(B + '#/research'); await r.waitForSelector('#research-search');
   await r.screenshot({ path: `${OUT}/v3-m-research-pick.png` });
-  await r.goto(B + '#/research?c=FXCABLES'); await r.waitForSelector('.ledger .lr', { timeout: 20000 });
-  await r.waitForFunction(() => !document.querySelector('.r-progress .st-running'), null, { timeout: 20000 }).catch(() => {});
+  await r.goto(B + '#/research?c=FXCABLES'); await r.waitForSelector('.r-panel', { timeout: 20000 });
+  await r.waitForFunction(() => !document.querySelector('.r-progress .st-running'), null, { timeout: 25000 }).catch(() => {});
   await r.waitForTimeout(500);
-  check('dossier sections', await r.locator('.r-sec').count() >= 7, `(${await r.locator('.r-sec').count()})`);
-  check('ledger verdicts', (await r.textContent('.ledger')).includes('Missed') && (await r.textContent('.ledger')).includes('On track'));
-  check('every claim has a citation', await r.locator('.claims li').count() > 0 && await r.locator('.claims li:not(:has(.cite))').count() === 0);
-  check('charts in numbers', await r.locator('#r-numbers .chart svg, #r-cash .chart svg').count() >= 1);
   await r.screenshot({ path: `${OUT}/v3-m-research.png` });
-  await r.screenshot({ path: `${OUT}/v3-m-research-full.png`, fullPage: true });
-  await r.locator('#r-business .cite').first().click(); await r.waitForSelector('dialog[open]');
-  const ev = await r.textContent('dialog');
-  check('citation opens passage with page', ev.includes('Page') && ev.includes('Primary document'));
-  await r.screenshot({ path: `${OUT}/v3-m-research-cite.png` });
-  await r.click('.dlg-close');
-  const sug = r.locator('#r-ask > .chips .chip').first();
+  // every tab: its label is the panel heading
+  const tabs = await r.$$eval('.r-nav [data-rtab]', (els) => els.map((e) => [e.dataset.rtab, e.textContent.replace(/\d+$/, '').trim()]));
+  let matched = 0;
+  for (const [id, label] of tabs) {
+    await r.click(`.r-nav [data-rtab="${id}"]`); await r.waitForTimeout(250);
+    const h = (await r.textContent('.r-title')).trim();
+    if (h === label && (await r.getAttribute(`.r-nav [data-rtab="${id}"]`, 'aria-pressed')) === 'true') matched++;
+    if (id === 'promises') { await r.screenshot({ path: `${OUT}/v3-m-research-promises.png` });
+      check('ledger verdicts', (await r.textContent('.ledger')).includes('Missed') && (await r.textContent('.ledger')).includes('On track')); }
+    if (id === 'numbers') check('charts in numbers', await r.locator('.r-panel .chart svg').count() >= 1);
+    if (id === 'business') {
+      check('every claim has a citation', await r.locator('.claims li').count() > 0 && await r.locator('.claims li:not(:has(.cite))').count() === 0);
+      await r.locator('.r-panel .cite').first().click(); await r.waitForSelector('dialog[open]');
+      const ev = await r.textContent('dialog');
+      check('citation opens passage with page', ev.includes('Page') && ev.includes('Primary document'));
+      await r.click('.dlg-close');
+    }
+  }
+  check('each tab shows a panel with the same heading', matched === tabs.length && tabs.length === 9, `${matched}/${tabs.length}`);
+  check('one panel at a time', await r.locator('.r-panel').count() === 1);
+  await r.click('.r-nav [data-rtab="ask"]'); await r.waitForTimeout(200);
+  const sug = r.locator('.chips.sugg .chip').first();
   await sug.click(); await sug.click({ force: true, timeout: 300 }).catch(() => {});
   await r.waitForSelector('.turn .claims li', { timeout: 15000 });
   check('suggested question answered once', rposts.filter((p) => p.endsWith('/ask')).length === 1, JSON.stringify(rposts));
+  await r.click('.r-nav [data-rtab="numbers"]'); await r.waitForTimeout(200);
   await r.fill('#rask-q', 'What are the risks?'); await r.press('#rask-q', 'Enter');
   await r.waitForFunction(() => document.querySelectorAll('.turn').length === 2 && !document.querySelector('.turn .skeleton'), null, { timeout: 15000 });
+  check('asking from another tab opens Ask', (await r.textContent('.r-title')).trim() === 'Ask');
   check('typed question answered', rposts.filter((p) => p.endsWith('/ask')).length === 2);
   const order = await r.$$eval('.turn .q-bubble', (els) => els.map((e) => e.textContent.replace('You asked: ', '').trim()));
   check('conversation reads oldest -> newest', order.length === 2 && order[1] === 'What are the risks?', JSON.stringify(order));
@@ -147,7 +160,7 @@ const B = process.env.BASE || 'http://localhost:8800/';
   await r.screenshot({ path: `${OUT}/v3-m-research-ask.png` });
   const rw = await r.evaluate(() => document.documentElement.scrollWidth); check('research no horizontal overflow', rw <= 390, rw);
   check('research start requested once', rposts.filter((p) => p.endsWith('/start')).length === 1, JSON.stringify(rposts));
-  await d.goto(B + '#/research?c=FXCABLES'); await d.waitForSelector('.ledger .lr'); await d.waitForTimeout(400);
+  await d.goto(B + '#/research?c=FXCABLES&s=promises'); await d.waitForSelector('.ledger .lr'); await d.waitForTimeout(400);
   await d.screenshot({ path: `${OUT}/v3-d-research.png` });
   console.log(res.join('\n')); console.log('ERRORS:', errors.length ? errors.join('\n') : 'none'); await b.close();
 })().catch((e) => { console.error('CRASH', e); process.exit(1); });

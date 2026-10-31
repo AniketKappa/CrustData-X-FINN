@@ -193,7 +193,7 @@ class FilingReader:
             return self._save(uid, {"kind": "results", "status": "no_table"})
         text = pages[i][:7000]
         raw = self.llm.complete_json(f"Page {i + 1} of the results filing:\n{text}\n\nReturn JSON exactly in this shape: "
-                                     f"{RESULTS_SHAPE}", system=RESULTS_SYSTEM, max_tokens=700, route="long")
+                                     f"{RESULTS_SHAPE}", system=RESULTS_SYSTEM, max_tokens=700, route="fast")
         if raw is None:
             return {"kind": "results", "status": "llm_failed"}           # not cached: retried next refresh
         block = results_block(raw, text, i + 1, url, symbol, is_lender, screener_latest, fixture)

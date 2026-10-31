@@ -3,7 +3,7 @@ import { AS_OF, COMPANIES, ITEMS, EOD, DOSSIERS, RESEARCH } from "./fixtures.js"
 import { WINDOWS, DEFAULT_SETTINGS, CATEGORY_LABEL, evaluateAlerts, buildBriefing, buildLiveBriefing, periodTable,
   sectionize, sectionSpeech } from "./logic.js";
 import { detectApi, getDigest, getHealth, startRefresh, adaptDigest, getHoldings, searchStocks, getCompany,
-  addHolding, removeHolding, startResearch, getResearch, askResearch } from "./api.js";
+  addHolding, removeHolding, startResearch, getResearch, askResearch, retrySection } from "./api.js";
 import { researchPicker, researchResults, researchDossier } from "./research.js";
 import { registry, resetRegistry, companyView, researchView, evidenceBody, settingsBody } from "./views.js";
 import { briefingV3, detailV3, aboutDataBody, portfolioV3, searchResults, companyV3, addSheet } from "./ui.js";
@@ -112,6 +112,7 @@ async function askQuestion(sym, question) {
   const history = notes.filter((n) => !n.pending && n.status === "ok").slice(-3)
     .map((n) => ({ question: n.question, answer: (n.claims || []).map((c) => c.text).join(" ").slice(0, 400) }));
   const id = `a${Date.now().toString(36)}`;
+  if ((parse().params.get("s") || "summary") !== "ask") window.history.replaceState(null, "", `#/research?c=${encodeURIComponent(sym)}&s=ask`);
   notes.push({ id, question, pending: true });
   LIVE.rnotes.set(sym, notes); LIVE.asking.add(sym);
   render();
@@ -290,7 +291,7 @@ function render() {
     } else {
       const r = LIVE.research.get(sym);
       if (!r) loadResearch(sym);
-      html = researchDossier({ sym, d: r?.data, notes: LIVE.rnotes.get(sym) || [], asking: LIVE.asking.has(sym), speechIn: !!SR, listening: !!S.rec });
+      html = researchDossier({ sym, d: r?.data, tab: params.get("s") || "summary", notes: LIVE.rnotes.get(sym) || [], asking: LIVE.asking.has(sym), speechIn: !!SR, listening: !!S.rec });
       title = r?.data?.name ? `${r.data.name} research` : "Research";
     }
     title = title === "Briefing" ? "Research" : title;
@@ -308,7 +309,8 @@ function render() {
   drawCharts();
   if (top === "portfolio" && S.search.results) { const box = $("#search-results"); if (box) box.innerHTML = searchHtml(); }
 
-  const key = location.hash.split("?")[0] + (wide.matches ? "w" : "n");
+  // Research tabs and companies count as separate pages (each opens at the top); Briefing windows don't.
+  const key = location.hash.split("?")[0] + (top === "research" ? `|${params.get("c") || ""}|${params.get("s") || ""}` : "") + (wide.matches ? "w" : "n");
   if (key !== lastRouteKey) {
     const within = wide.matches && lastRouteKey.startsWith("#/briefing") && key.startsWith("#/briefing");
     if (within) window.scrollTo(0, scrollY);
@@ -422,26 +424,6 @@ function ask(q, symbol) {
 }
 const noteText = (n) => `${n.q}. Findings: ${n.answer.findings.map((f) => f.text).join(" ")} What it may mean: ${n.answer.implication} Uncertainty: ${n.answer.uncertainty}`;
 
-// Research section tabs follow the reader: the tab of the section at the top of the screen is selected.
-function markSection(id) {
-  document.querySelectorAll(".r-nav [data-jump]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.jump === id)));
-  document.querySelector(`.r-nav [data-jump="${id}"]`)?.scrollIntoView({ inline: "nearest", block: "nearest" });
-}
-let spyTick = 0;
-window.addEventListener("scroll", () => {
-  if (spyTick) return;
-  spyTick = requestAnimationFrame(() => {
-    spyTick = 0;
-    const tabs = [...document.querySelectorAll(".r-nav [data-jump]")];
-    if (!tabs.length) return;
-    const line = 160;
-    let cur = tabs[0].dataset.jump;
-    for (const t of tabs) { const el = document.getElementById(t.dataset.jump); if (el && el.getBoundingClientRect().top <= line) cur = t.dataset.jump; }
-    const now = document.querySelector('.r-nav [aria-pressed="true"]')?.dataset.jump;
-    if (now !== cur) markSection(cur);
-  });
-}, { passive: true });
-
 // ---------- events ----------
 // Ghost-tap guard: when a tap opens another screen, a second tap that follows within 350 ms would land on whatever
 // is now under the finger (often the bottom nav). Such taps are ignored. Only taps that navigate start the guard.
@@ -462,7 +444,7 @@ document.addEventListener("click", async (e) => {
   if (ds.window) { const { parts } = parse(); stopSpeech(); go(`#/briefing${parts[1] === "item" ? "/" + parts.slice(1).join("/") : ""}?w=${ds.window}`); return; }
   if (ds.filter) { S.filter = ds.filter; render(); return; }
   if (ds.more) { if (S.expanded.has(ds.more)) S.expanded.delete(ds.more); else S.expanded.add(ds.more); render(); return; }
-  if (ds.jump) { markSection(ds.jump); document.getElementById(ds.jump)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }); return; }
+  if (ds.rtab) { const sym = currentResearch(); if (sym) go(`#/research?c=${encodeURIComponent(sym)}&s=${ds.rtab}`); return; }
   if (ds.rq) { const sym = currentResearch(); if (sym) askQuestion(sym, ds.rq); return; }
   if (ds.ptab) { S.ptab = ds.ptab; S.selected.clear(); render(); return; }
   if (ds.ask) { const sym = $("#rco").value; ask(RESEARCH[sym][+ds.ask].q, sym); return; }
@@ -501,6 +483,9 @@ document.addEventListener("click", async (e) => {
     case "close-dlg": dlg.close(); break;
     case "r-rebuild": { const sym = currentResearch(); if (sym) { LIVE.research.delete(sym); loadResearch(sym, true); } break; }
     case "mic": listen(); break;
+    case "r-retry": { const sym = currentResearch(); if (sym && ds.sec) { t.disabled = true; await once(`retry:${sym}:${ds.sec}`, async () => {
+        try { await retrySection(sym, ds.sec); } catch (err) { showToast(`Couldn't retry: ${err.message}`); }
+        LIVE.research.delete(sym); await loadResearch(sym); }); } break; }
     case "r-clear": { const sym = currentResearch(); if (sym) { LIVE.rnotes.delete(sym); render(); } break; }
     case "select-stock": if (S.selected.has(ds.symbol)) S.selected.delete(ds.symbol); else S.selected.add(ds.symbol); render(); break;
     case "open-add": if (dlg.open) break; S.add = { q: "", results: null, note: null }; searchers["add-search"] = makeSearch(S.add, "add-results", addHtml);

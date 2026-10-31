@@ -278,7 +278,51 @@ class ResearchEngine:
             self._step(job, "bull_bear", "running")
             job["sections"]["bull_bear"] = self._bull_bear(bm, fb.facts, rows, job["name"])
             self._step(job, "bull_bear", "done")
+        # One automatic second try for any section the free per-minute limit blocked (budgets reset each minute).
+        if llm_ok and bm:
+            failed = [k for k in ("business", "narrative", "bull_bear") if (job["sections"].get(k) or {}).get("status") == "llm_failed"]
+            if failed:
+                import time as _t
+                _t.sleep(20)
+                for k in failed:
+                    self._redo(job, k, bm, fb.facts, rows)
         job["usage"] = self.llm.usage_summary() if llm_ok else None
+
+    def _redo(self, job: dict, key: str, bm: BM25, facts: list[Fact], rows: list[LedgerRow]) -> None:
+        docs = [Doc(**d) for d in job.get("documents") or [] if d.get("status") == "ok"]
+        transcripts = [d for d in docs if d.kind == "transcript"]
+        if key == "business":
+            job["sections"]["business"] = self._section(bm, "business", ("annual_report", "presentation"), [], company=job["name"])
+        elif key == "narrative":
+            ff = [f for f in facts if f.label.startswith(("Operating margin", "Revenue growth", "Net profit growth"))]
+            job["sections"]["narrative"] = self._section(bm, "narrative", ("transcript",), ff,
+                                                         doc_ids={d.id for d in transcripts[:2]}, company=job["name"])
+        elif key == "bull_bear":
+            job["sections"]["bull_bear"] = self._bull_bear(bm, facts, rows, job["name"])
+        elif key == "guidance":
+            found = self._guidance_all(bm, transcripts)
+            label_of = {d.id: d.title.split(" call")[0] for d in transcripts}
+            for r in found:
+                evaluate(r, job.get("quarters") or [], label_of.get(r.cite.get("doc_id"), ""))
+            job["sections"]["guidance"] = {"rows": [r.model_dump(mode="json") for r in found]}
+            job["sections"]["ledger"] = {"rows": [r.model_dump(mode="json") for r in found], "score": scorecard(found),
+                                         "labels": VERDICT_LABEL}
+
+    def retry_section(self, symbol: str, key: str) -> dict:
+        """Re-run one model-written section of a finished dossier and save it."""
+        symbol = symbol.upper()
+        st = self.status(symbol)
+        if st.get("status") != "done":
+            return st
+        idx = self._index(symbol)
+        if idx is None or not (self.llm and self.llm.available):
+            return st
+        _, bm, _ = idx
+        facts = [Fact(**f) for f in (st.get("facts") or {}).values()]
+        rows = [LedgerRow(**r) for r in ((st.get("sections") or {}).get("ledger") or {}).get("rows", [])]
+        self._redo(st, key, bm, facts, rows)
+        self.store.put_research(f"{VERSION}:{symbol}", json.dumps(st, default=str))
+        return st
 
     # ------------------------------------------------------------ pieces
     def _section(self, bm: BM25, key: str, kinds, facts: list[Fact], doc_ids=None, company="") -> dict:

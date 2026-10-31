@@ -38,6 +38,7 @@ export const removeHolding = (symbol) => post("/v1/holdings/remove", { symbol })
 export const getHealth = () => getJSON("/health", { timeout: 4000 });
 export const triggerRefresh = () => getJSON("/jobs/refresh", { method: "POST", timeout: 180000 });
 export const startResearch = (sym, force = false) => getJSON(`/v1/research/${encodeURIComponent(sym)}/start${force ? "?force=true" : ""}`, { method: "POST", timeout: 20000 });
+export const retrySection = (sym, sec) => getJSON(`/v1/research/${encodeURIComponent(sym)}/retry?section=${encodeURIComponent(sec)}`, { method: "POST", timeout: 120000 });
 export const getResearch = (sym) => getJSON(`/v1/research/${encodeURIComponent(sym)}`, { timeout: 10000 });
 export const askResearch = (sym, question, history = []) => getJSON(`/v1/research/${encodeURIComponent(sym)}/ask`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, history }), timeout: 120000 });
 export const startRefresh = () => getJSON("/jobs/refresh?background=true", { method: "POST", timeout: 8000 });

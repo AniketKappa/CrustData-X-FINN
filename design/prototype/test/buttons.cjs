@@ -3,7 +3,7 @@
 // (except the ones whose job is to navigate), and dialogs they open can be closed.
 const { chromium } = require('playwright');
 const B = process.env.BASE || 'http://localhost:8800/';
-const SKIP = /delete-selected|r-rebuild|mic|reset-settings/;      // destructive or device-only; covered in v3.cjs
+const SKIP = /delete-selected|r-rebuild|r-retry|mic|reset-settings/;      // destructive or device-only; covered in v3.cjs
 const NAVIGATES = /data-window|data-act="done"|data-act="snooze"|edit-portfolio/;
 (async () => {
   const b = await chromium.launch(); const errors = [], fails = []; let n = 0;
