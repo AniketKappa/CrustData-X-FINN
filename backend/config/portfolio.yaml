@@ -1,0 +1,33 @@
+# Demo portfolio (owner request 30 Oct 2026, D-54): 20 holdings chosen so that, in a normal week, the briefing
+# has something in every alert type: results, management change, M&A, litigation/regulatory, credit rating and
+# price/volume moves. These are DEMO CHOICES: the app's Portfolio tab adds or removes any NSE/BSE stock, and the
+# edited list is saved to data/portfolio.json (which then takes precedence over this file).
+# bse_code values need Spike S5 verification. `aliases` map RSS company names to symbols.
+# `news_terms`: a headline must contain one of these (whole words) to count as about the company; a term starting
+# with "=" is matched case-sensitively. `news_exclude`: headlines naming these are not attached.
+holdings:
+  - {symbol: RELIANCE,   bse_code: "500325", name: Reliance Industries Ltd,  sector: Energy & conglomerate, size: large, aliases: [Reliance Industries], news_terms: [Reliance Industries, RIL], news_exclude: [Reliance Power, Reliance Infrastructure, Reliance Capital]}
+  - {symbol: HDFCBANK,   bse_code: "500180", name: HDFC Bank Ltd,            sector: Private bank,          size: large, is_lender: true, news_terms: [HDFC Bank]}
+  - {symbol: INFY,       bse_code: "500209", name: Infosys Ltd,              sector: IT services,           size: large, aliases: [Infosys Limited], news_terms: [Infosys]}
+  - {symbol: ITC,        bse_code: "500875", name: ITC Ltd,                  sector: FMCG,                  size: large, news_terms: [ITC], news_exclude: [ITC Hotels, input tax credit, avail ITC, ITC claim, ITC refund, GST]}
+  - {symbol: LT,         bse_code: "500510", name: Larsen & Toubro Ltd,      sector: Capital goods,         size: large, aliases: [Larsen and Toubro], news_terms: [Larsen & Toubro, L&T, Larsen and Toubro], news_exclude: [L&T Finance, L&T Technology, L&T Tech, LTIMindtree]}
+  - {symbol: SUNPHARMA,  bse_code: "524715", name: Sun Pharmaceutical Industries Ltd, sector: Pharmaceuticals, size: large, news_terms: [Sun Pharma, Sun Pharmaceutical]}
+  - {symbol: DRREDDY,    bse_code: "500124", name: Dr. Reddy's Laboratories Ltd, sector: Pharmaceuticals,     size: large, aliases: [Dr Reddys Laboratories], news_terms: [Dr Reddy's, Dr. Reddy's, Dr Reddys, Dr. Reddys]}
+  - {symbol: MARUTI,     bse_code: "532500", name: Maruti Suzuki India Ltd,  sector: Automobiles,           size: large, news_terms: [Maruti Suzuki, Maruti]}
+  - {symbol: BHARTIARTL, bse_code: "532454", name: Bharti Airtel Ltd,        sector: Telecom,               size: large, news_terms: [Bharti Airtel, Airtel], news_exclude: [Airtel Africa]}
+  - {symbol: BAJFINANCE, bse_code: "500034", name: Bajaj Finance Ltd,        sector: NBFC,                  size: large, is_lender: true, news_terms: [Bajaj Finance], news_exclude: [Bajaj Finserv, Bajaj Housing Finance]}
+  - {symbol: ADANIENT,   bse_code: "512599", name: Adani Enterprises Ltd,    sector: Conglomerate,          size: large, news_terms: [Adani Enterprises]}
+  - {symbol: VEDL,       bse_code: "500295", name: Vedanta Ltd,              sector: Metals & mining,       size: large, news_terms: [Vedanta]}
+  - {symbol: TATAPOWER,  bse_code: "500400", name: Tata Power Company Ltd,   sector: Power utilities,       size: large, aliases: [The Tata Power Company], news_terms: [Tata Power]}
+  - {symbol: ETERNAL,    bse_code: "543320", name: Eternal Ltd,              sector: Internet & delivery,   size: large, aliases: [Zomato], news_terms: ["=Eternal", Zomato, Blinkit]}
+  - {symbol: TRENT,      bse_code: "500251", name: Trent Ltd,                sector: Retail,                size: mid,   news_terms: ["=Trent"]}
+  - {symbol: POLYCAB,    bse_code: "542652", name: Polycab India Ltd,        sector: Cables & electricals,  size: mid,   news_terms: [Polycab]}
+  - {symbol: NAUKRI,     bse_code: "532777", name: Info Edge (India) Ltd,    sector: Internet services,     size: mid,   aliases: [Info Edge India], news_terms: [Info Edge, Naukri]}
+  - {symbol: PAYTM,      bse_code: "543396", name: One 97 Communications Ltd, sector: Fintech,             size: mid,   aliases: [One97 Communications], news_terms: [Paytm, One 97, One97]}
+  - {symbol: YESBANK,    bse_code: "532648", name: Yes Bank Ltd,             sector: Private bank,          size: mid,   is_lender: true, news_terms: [Yes Bank]}
+  - {symbol: SUZLON,     bse_code: "532667", name: Suzlon Energy Ltd,        sector: Renewable equipment,   size: small, news_terms: [Suzlon]}
+research:
+  - {symbol: PIDILITIND, bse_code: "500331", name: Pidilite Industries Ltd,  sector: Adhesives & chemicals, size: large, news_terms: [Pidilite]}
+  - {symbol: ASTRAL,     bse_code: "532830", name: Astral Ltd,               sector: Building products,     size: mid,   news_terms: ["=Astral"]}
+  - {symbol: APLAPOLLO,  bse_code: "533758", name: APL Apollo Tubes Ltd,     sector: Steel tubes,           size: mid,   news_terms: [APL Apollo]}
+  - {symbol: HAVELLS,    bse_code: "517354", name: Havells India Ltd,        sector: Consumer electricals,  size: large, news_terms: [Havells]}

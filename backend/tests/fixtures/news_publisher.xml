@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC fixture shaped like a publisher's company-news RSS feed. -->
+<rss version="2.0"><channel><title>Fixture Times company news</title><link>https://fixtures.finn.invalid/news</link><description>fixture</description>
+<item><title>Fixture Power outlook raised to positive by rating agency</title>
+ <link>https://fixtures.finn.invalid/news/f1</link><pubDate>Thu, 29 Oct 2026 11:50:00 GMT</pubDate></item>
+<item><title>Unrelated Fixture Corp wins Rs 500 crore order</title>
+ <link>https://fixtures.finn.invalid/news/f2</link><pubDate>Thu, 29 Oct 2026 10:00:00 GMT</pubDate></item>
+</channel></rss>

@@ -1,0 +1,20 @@
+{
+  "_comment": "SYNTHETIC fixture shaped like the NSE corporate-announcements JSON (RESEARCH R15). Invented companies; .invalid links.",
+  "FXCABLES": [
+    {"symbol": "FXCABLES", "sm_name": "Fixture Cables Limited", "desc": "Outcome of Board Meeting",
+     "attchmntText": "The Board approved the unaudited financial results for the quarter ended September 30, 2026",
+     "attchmntFile": "https://fixtures.finn.invalid/corporate/FXCABLES_29102026184200_Outcome.pdf",
+     "an_dt": "29-Oct-2026 18:42:00", "exchdisstime": "29-Oct-2026 18:42:00", "sort_date": "2026-10-29 18:42:00",
+     "seq_id": "900001", "smIndustry": "Cables", "fileSize": "312 KB", "hasXbrl": true},
+    {"symbol": "FXCABLES", "sm_name": "Fixture Cables Limited", "desc": "Dividend",
+     "attchmntText": "Record date for the interim dividend of Rs 3 per share",
+     "attchmntFile": "https://fixtures.finn.invalid/corporate/FXCABLES_27102026100000_Div.pdf",
+     "an_dt": "27-Oct-2026 10:00:00", "sort_date": "2026-10-27 10:00:00", "seq_id": "900002", "hasXbrl": true}
+  ],
+  "FXPOWER": [
+    {"symbol": "FXPOWER", "sm_name": "Fixture Power Limited", "desc": "Updates",
+     "attchmntText": "Receipt of show cause notice from SEBI regarding disclosure lapses",
+     "attchmntFile": "", "an_dt": "29-Oct-2026 11:10:00", "sort_date": "2026-10-29 11:10:00", "seq_id": "900003"}
+  ],
+  "FXPHARMA": [], "FXBANK": [], "FXNEWCO": [], "FXHALTED": [], "FXGONE": [], "FXBROKEN": [], "FXTUBES": []
+}

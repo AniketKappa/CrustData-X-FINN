@@ -1,0 +1,10 @@
+# Deterministic market-alert thresholds (ARCHITECTURE §5.7). Device overrides arrive with each request.
+# A rule fires when the value is AT OR BEYOND the threshold (>=). Boundary behaviour is tested.
+price:
+  pct_change_abs: 5.0          # |close / previous close - 1| * 100 >= this
+volume:
+  multiple: 2.0                # volume / mean(previous N sessions' volume) >= this
+  lookback_sessions: 20        # N
+  min_history_sessions: 10     # fewer prior sessions than this -> volume signal "insufficient_history"
+staleness:
+  max_age_trading_days: 1      # data older than this many weekdays behind the expected session is "stale"

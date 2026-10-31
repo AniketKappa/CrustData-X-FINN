@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC fixture: generic RSS shaped like a BSE corporate-announcements feed (exact layout unverified). -->
+<rss version="2.0"><channel><title>Fixture BSE</title><link>https://fixtures.finn.invalid/bse</link><description>fixture</description>
+<item><title>Change in Directors/ Key Managerial Personnel</title>
+ <link>https://fixtures.finn.invalid/bse/AttachHis/fxpharma-cfo.pdf</link>
+ <description>Fixture Pharma Ltd - 999902 - Resignation of Chief Financial Officer and appointment of successor effective 1 December 2026</description>
+ <pubDate>Thu, 29 Oct 2026 17:06:00 +0530</pubDate></item>
+</channel></rss>

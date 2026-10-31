@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC fixture shaped like a Google News RSS search result. Invented publishers and links (.invalid). -->
+<rss version="2.0"><channel><title>"Fixture Cables" - Fixture news search</title><link>https://fixtures.finn.invalid/news</link><description>fixture</description>
+<item><title>Fixture Cables to acquire wire-harness maker in Rs 180 crore deal - Fixture Wire</title>
+ <link>https://fixtures.finn.invalid/news/a1</link><pubDate>Thu, 29 Oct 2026 08:10:00 GMT</pubDate>
+ <description>&lt;a href="x"&gt;snippet that FINN must not store&lt;/a&gt;</description>
+ <source url="https://www.fixturewire.invalid">Fixture Wire</source></item>
+<item><title>Fixture Cables to acquire wire-harness maker in Rs 180 crore deal - Fixture Times</title>
+ <link>https://fixtures.finn.invalid/news/a2</link><pubDate>Thu, 29 Oct 2026 08:40:00 GMT</pubDate>
+ <source url="https://fixturetimes.invalid">Fixture Times</source></item>
+<item><title>Fixture Cables Q2 results: profit rises 2% on higher volumes - Fixture Times</title>
+ <link>https://fixtures.finn.invalid/news/a3</link><pubDate>Thu, 29 Oct 2026 13:30:00 GMT</pubDate>
+ <source url="https://fixturetimes.invalid">Fixture Times</source></item>
+<item><title>Fixture Cables shares: 5 things to know - Unvetted Blog</title>
+ <link>https://fixtures.finn.invalid/news/a4</link><pubDate>Thu, 29 Oct 2026 09:00:00 GMT</pubDate>
+ <source url="https://unvetted-blog.invalid">Unvetted Blog</source></item>
+<item><title>Cable makers rally as copper prices fall - Fixture Wire</title>
+ <link>https://fixtures.finn.invalid/news/a5</link><pubDate>Thu, 29 Oct 2026 07:00:00 GMT</pubDate>
+ <source url="https://www.fixturewire.invalid">Fixture Wire</source></item>
+<item><title>Fixture Cables board meets next week - Fixture Wire</title>
+ <link>https://fixtures.finn.invalid/news/a6</link><pubDate>Mon, 19 Oct 2026 07:00:00 GMT</pubDate>
+ <source url="https://www.fixturewire.invalid">Fixture Wire</source></item>
+</channel></rss>

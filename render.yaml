@@ -1,0 +1,17 @@
+# Render Blueprint: New + -> Blueprint -> pick this repo. Free web service (512 MB, sleeps after 15 min idle).
+services:
+  - type: web
+    name: finn
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: FINN_AR_MAX_PAGES
+        value: "90"            # read fewer annual-report pages to fit 512 MB
+      - key: GROQ_API_KEY
+        sync: false            # you paste the value in Render's dashboard; never committed
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false

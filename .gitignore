@@ -1,0 +1,59 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- Local data & caches (may contain downloaded filings; regenerate, don't commit) ---
+data/*
+!data/.gitkeep
+!data/seed/
+!data/seed_cache/
+*.db
+*.sqlite
+*.sqlite3
+*.pdf
+*.xbrl
+# Test fixtures ARE committed (explicit allow):
+!backend/tests/fixtures/**
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Testing / tooling ---
+playwright-report/
+test-results/
+coverage/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+finn.zip

@@ -1,0 +1,41 @@
+PASS briefing high items 24h (5)
+PASS nav active briefing 
+PASS window 7d in URL 
+PASS 7d shows more high items (5->7)
+PASS routine hidden initially 
+PASS routine expands 
+PASS routine aria-expanded 
+PASS evidence dialog opens 
+PASS evidence closes with Esc 
+PASS real filing has NSE URL https://nsearchives.nseindia.com/corporate/INFY_29102026151445_SE_intimation_Newspaper_ad_2.pdf
+PASS done removes item 9->8
+PASS restore note shown 
+PASS restore brings back 
+PASS item detail route 
+PASS vol 3x removes an alert 2->1
+PASS nav active companies 
+PASS search filters (Fixture Tubes, APL Apollo Tubes)
+PASS unknown symbol message 
+PASS real company honest empty 
+PASS section overview active 
+PASS section overview charts (0)
+PASS section financials active 
+PASS section financials charts (2)
+PASS section cash active 
+PASS section cash charts (1)
+PASS section promises active 
+PASS section promises charts (2)
+PASS section nav click 
+PASS charts fit mobile width (374)
+PASS no horizontal page overflow (390)
+PASS chart tooltip 
+PASS example answer renders 
+PASS answer citation opens passage 
+PASS free question honest 
+PASS follow-up asks 
+PASS content clears bottom nav [755.59375,788]
+PASS skip link focusable 
+PASS desktop pane shows selected 
+PASS desktop pane follows selection CFO resigns; successor from a listed peer joins on 1 December
+PASS tablet no overflow (820)
+ERRORS: none

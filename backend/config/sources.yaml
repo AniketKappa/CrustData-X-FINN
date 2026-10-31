@@ -1,0 +1,61 @@
+# Data sources (DECISIONS D-33, D-36, D-38). Every source can be disabled; failures degrade, never crash.
+# Status values: verified (fetched and parsed by FINN), observed (seen once, not via FINN), unverified (not yet reached).
+http:
+  timeout_seconds: 10
+  max_retries: 2              # bounded: 1 try + 2 retries
+  backoff_seconds: 1.0        # 1s, 2s (exponential), capped
+  backoff_cap_seconds: 8
+  min_delay_seconds: 1.0      # politeness delay per host
+  user_agent: "FINN-research-prototype/0.1 (personal, non-commercial)"
+prices:
+  provider: yfinance          # yfinance | fixture
+  history_days: 60
+  cache_ttl_minutes: 30       # a symbol is not re-fetched more often than this
+  failure_backoff_minutes: 15 # after a failure, wait this long before trying the symbol again
+announcements:
+  cache_ttl_minutes: 10
+  failure_backoff_minutes: 10
+  sources:
+    nse_rss:
+      enabled: true
+      status: verified        # fetched and parsed by FINN from the owner's PC, 2026-10-30 05:20 IST (5 items)
+      url: https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml
+      note: Official feed. ~1 hour rolling window; company name only (mapped via portfolio aliases).
+    nse_json:
+      enabled: false          # D-49: NSE answers HTTP 403 to FINN (owner's PC, 2026-10-30). Not worked around.
+      status: blocked         # opened once in Chrome (RESEARCH R15); undocumented website endpoint
+      home_url: https://www.nseindia.com/
+      url: https://www.nseindia.com/api/corporate-announcements?index=equities&symbol={symbol}
+      note: Undocumented and may change at any time. Used only for per-symbol backfill (D-33, D-38). Schema-checked; disabled automatically on schema mismatch.
+    bse_api:
+      enabled: true           # D-65 (owner-approved 31 Oct 2026): bseindia.com's own announcements JSON, per company
+      status: unverified      # not yet fetched by FINN; run `python -m finn check-live`
+      url: "https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?pageno=1&strCat=-1&strPrevDate={start}&strScrip={code}&strSearch=P&strToDate={end}&strType=C&subcategory=-1"
+      note: Every filing on BSE for each company over the last 8 days, with the filed PDF. Undocumented website endpoint; schema-checked; FINN stops calling it if it changes or refuses.
+    bse_rss:
+      enabled: false          # URL not yet verified (Spike S1); enable after confirming the feed address
+      status: unverified
+      url: ""                 # fill from https://www.bseindia.com/rss-feed.html (official feed list)
+news:
+  # D-51: headlines only (EXTERNAL_WEB), labelled as media reports and kept apart from filings.
+  enabled: true
+  status: unverified           # not yet fetched by FINN; run `python -m finn check-live`
+  cache_ttl_minutes: 60
+  failure_backoff_minutes: 30
+  lookback_days: 7
+  max_items: 80                # stories (after clustering) kept for the 7-day digest; the app shows ~6 per section
+  google_news_url: "https://news.google.com/rss/search?q={query}&hl=en-IN&gl=IN&ceid=IN:en"
+  trusted_domains: [moneycontrol.com, economictimes.indiatimes.com, thehindu.com, thehindubusinessline.com,
+                    livemint.com, business-standard.com, financialexpress.com, cnbctv18.com, ndtvprofit.com,
+                    reuters.com, groww.in]
+  publisher_feeds:
+    - {name: et_company, publisher: The Economic Times, url: "https://economictimes.indiatimes.com/news/company/rssfeeds/2143429.cms"}
+    - {name: et_stocks,  publisher: The Economic Times, url: "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms"}
+    # Moneycontrol's RSS returned HTTP 403 to FINN (owner's PC, 30 Oct 2026); Moneycontrol stories still arrive via Google News.
+screener:
+  # D-35 option B / D-38: quarterly results table for the results first cut (STANDARDIZED_TABLE).
+  enabled: true
+  status: unverified           # not yet fetched by FINN
+  url_template: "https://www.screener.in/company/{symbol}/{basis}"
+  cache_ttl_minutes: 720       # each company page at most every 12 h (fundamentals change quarterly)
+  failure_backoff_minutes: 60

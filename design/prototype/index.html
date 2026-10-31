@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FINN</title>
+<meta name="theme-color" content="#FFFFFF">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FINN">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<p class="banner" id="banner" role="note"><b>Demonstration data.</b> Companies named “Fixture …” and all their figures and documents are invented. Infosys rows are real NSE announcement metadata. Not investment advice.</p>
+<header class="topbar">
+  <a class="wordmark" href="#/briefing" aria-label="FINN home">FINN<span>.</span></a>
+  <div class="top-actions">
+    <button type="button" class="menu-btn" data-act="menu" aria-haspopup="dialog" aria-label="Alert settings">
+      <svg class="ic" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h9M15 6h2M3 14h3M9 14h8"/><circle cx="13.5" cy="6" r="1.5"/><circle cx="7.5" cy="14" r="1.5"/></svg><span class="lbl">Alerts</span>
+    </button>
+  </div>
+</header>
+<div class="frame">
+  <nav class="nav" aria-label="Primary">
+    <a href="#/briefing" data-nav="briefing"><svg class="ic" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M4 9h12M4 13.5h8"/><circle cx="15.5" cy="15" r="1.5"/></svg>Briefing</a>
+    <a href="#/portfolio" data-nav="portfolio"><svg class="ic" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="6" width="14" height="10" rx="2"/><path d="M7 6V4.5A1.5 1.5 0 0 1 8.5 3h3A1.5 1.5 0 0 1 13 4.5V6M3 10.5h14"/></svg>Portfolio</a>
+    <a href="#/research" data-nav="research"><svg class="ic" viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5"/><path d="M13 13l4 4"/></svg>Research</a>
+  </nav>
+  <main id="main" tabindex="-1"><p class="empty" role="status">Loading FINN…</p></main>
+</div>
+<dialog id="dlg" aria-labelledby="dlg-title">
+  <div class="dlg-in">
+    <button type="button" class="dlg-close" aria-label="Close"><svg class="ic" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+    <div id="dlg-body"></div>
+  </div>
+</dialog>
+<div id="tip" role="tooltip" hidden></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+<noscript><p style="padding:16px">FINN's prototype needs JavaScript.</p></noscript>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

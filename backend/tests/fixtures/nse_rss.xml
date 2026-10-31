@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC fixture shaped like NSE Online_announcements.xml (RESEARCH R26). Companies and links are invented;
+     .invalid URLs can never resolve. -->
+<rss version="2.0"><channel>
+<title>Fixture announcements</title><link>https://fixtures.finn.invalid/</link><description>fixture</description>
+<item><title>Fixture Cables Ltd</title><link>https://fixtures.finn.invalid/corporate/FXCABLES_29102026184200_Outcome.pdf</link>
+ <description>The Board approved the unaudited financial results for the quarter ended September 30, 2026|SUBJECT: Outcome of Board Meeting</description>
+ <pubDate>29-Oct-2026 18:42:00</pubDate></item>
+<item><title>Fixture Pharma Ltd</title><link>https://fixtures.finn.invalid/corporate/FXPHARMA_29102026170500_CFO.pdf</link>
+ <description>Resignation of Chief Financial Officer and appointment of successor effective 1 December 2026|SUBJECT: Change in Directors/ Key Managerial Personnel</description>
+ <pubDate>29-Oct-2026 17:05:00</pubDate></item>
+<item><title>Fixture Power Ltd</title><link>https://fixtures.finn.invalid/corporate/FXPOWER_29102026162000_Rating.pdf</link>
+ <description>Fixture Rating Agency has reaffirmed the long-term rating; outlook revised to positive|SUBJECT: Credit Rating</description>
+ <pubDate>29-Oct-2026 16:20:00</pubDate></item>
+<item><title>Fixture Cables Ltd</title><link>https://fixtures.finn.invalid/corporate/FXCABLES_29102026124000_Newspaper.pdf</link>
+ <description>Publication of unaudited financial results in newspapers|SUBJECT: Copy of Newspaper Publication</description>
+ <pubDate>29-Oct-2026 12:40:00</pubDate></item>
+<item><title>Fixture Bank Ltd</title><link>https://fixtures.finn.invalid/corporate/FXBANK_29102026140000_Cert.pdf</link>
+ <description>Certificate under Regulation 74(5) of SEBI (Depositories and Participants) Regulations, 2018|SUBJECT: Certificate under SEBI (DP) Regulations</description>
+ <pubDate>29-Oct-2026 14:00:00</pubDate></item>
+<item><title>Fixture Pharma Ltd</title><link>https://fixtures.finn.invalid/corporate/FXPHARMA_28102026093000_TW.pdf</link>
+ <description>Closure of trading window until 48 hours after results|SUBJECT: Trading Window</description>
+ <pubDate>28-Oct-2026 09:30:00</pubDate></item>
+<item><title>Fixture Tubes Ltd</title><link>https://fixtures.finn.invalid/corporate/FXTUBES_28102026173800_Transcript.pdf</link>
+ <description>Transcript of the earnings call held on October 28, 2026|SUBJECT: Analysts/Institutional Investor Meet/Con. Call Updates</description>
+ <pubDate>28-Oct-2026 17:38:00</pubDate></item>
+<item><title>Fixture Cables Ltd</title><link>https://fixtures.finn.invalid/corporate/FXCABLES_24102026112000_Acq.pdf</link>
+ <description>Agreement to acquire 51% stake in a wire-harness maker for Rs 180 crore|SUBJECT: Acquisition</description>
+ <pubDate>24-Oct-2026 11:20:00</pubDate></item>
+<item><title>Unrelated Fixture Corp Ltd</title><link>https://fixtures.finn.invalid/corporate/FXOTHER_29102026150000_PR.pdf</link>
+ <description>Order win of Rs 500 crore|SUBJECT: Press Release</description>
+ <pubDate>29-Oct-2026 15:00:00</pubDate></item>
+<item><title>Fixture Power Ltd</title><link>https://fixtures.finn.invalid/corporate/FXPOWER_nodate.pdf</link>
+ <description>Item with no publication date must be skipped|SUBJECT: Updates</description></item>
+</channel></rss>

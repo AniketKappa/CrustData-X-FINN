@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC fixture shaped like a Google News RSS search result. -->
+<rss version="2.0"><channel><title>"Fixture Pharma" - Fixture news search</title><link>https://fixtures.finn.invalid/news</link><description>fixture</description>
+<item><title>Fixture Pharma names Alpha Demoperson as CFO; Beta Demoperson steps down - Fixture Wire</title>
+ <link>https://fixtures.finn.invalid/news/p0</link><pubDate>Thu, 29 Oct 2026 12:40:00 GMT</pubDate>
+ <source url="https://www.fixturewire.invalid">Fixture Wire</source></item>
+<item><title>Fixture Pharma CFO resigns; former generics finance head to take over - Fixture Times</title>
+ <link>https://fixtures.finn.invalid/news/p1</link><pubDate>Thu, 29 Oct 2026 12:15:00 GMT</pubDate>
+ <source url="https://fixturetimes.invalid">Fixture Times</source></item>
+</channel></rss>

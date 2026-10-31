@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.git
+**/__pycache__
+**/.pytest_cache
+data/*
+!data/.gitkeep
+finn.zip
+design/prototype/shots
+design/prototype/archive
+node_modules

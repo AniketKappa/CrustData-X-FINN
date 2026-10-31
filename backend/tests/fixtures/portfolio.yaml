@@ -1,0 +1,13 @@
+# FIXTURE portfolio: fictitious companies for deterministic tests and the offline demo.
+# Using invented companies guarantees no synthetic event or price is ever attached to a real listing.
+holdings:
+  - {symbol: FXCABLES, bse_code: "999901", name: Fixture Cables Ltd,  sector: Cables (fixture),     size: mid, news_terms: [Fixture Cables]}
+  - {symbol: FXPHARMA, bse_code: "999902", name: Fixture Pharma Ltd,  sector: Pharma (fixture),     size: large, news_terms: [Fixture Pharma]}
+  - {symbol: FXPOWER,  bse_code: "999903", name: Fixture Power Ltd,   sector: Utilities (fixture),  size: mid, news_terms: [Fixture Power]}
+  - {symbol: FXBANK,   bse_code: "999904", name: Fixture Bank Ltd,    sector: Banking (fixture),    size: large, is_lender: true}
+  - {symbol: FXNEWCO,  bse_code: null,     name: Fixture Newco Ltd,   sector: Electronics (fixture), size: small}
+  - {symbol: FXHALTED, bse_code: "999906", name: Fixture Halted Ltd,  sector: Textiles (fixture),   size: small}
+  - {symbol: FXGONE,   bse_code: null,     name: Fixture Gone Ltd,    sector: Unknown (fixture),    size: small}
+  - {symbol: FXBROKEN, bse_code: null,     name: Fixture Broken Ltd,  sector: Unknown (fixture),    size: small}
+research:
+  - {symbol: FXTUBES,  bse_code: "999909", name: Fixture Tubes Ltd,   sector: Steel tubes (fixture), size: mid, news_terms: [Fixture Tubes]}

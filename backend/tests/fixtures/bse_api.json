@@ -1,0 +1,16 @@
+{
+  "999901": [
+    {"NEWSID": "fx-bse-1", "SCRIP_CD": 999901, "XML_NAME": "", "NEWSSUB": "Fixture Cables Ltd - 999901 - Outcome of Board Meeting - Financial Results for the quarter ended September 30, 2026",
+     "DT_TM": "2026-10-29T18:40:11.25", "NEWS_DT": "2026-10-29T18:40:11.25", "DissemDT": "2026-10-29T18:40:11.25", "CRITICALNEWS": 0,
+     "ATTACHMENTNAME": "fx_results_q2fy27.pdf", "HEADLINE": "Board approved unaudited financial results for Q2 FY27.",
+     "CATEGORYNAME": "Result", "SUBCATNAME": "Financial Results", "SLONGNAME": "Fixture Cables Ltd", "Fld_Attachsize": 318000},
+    {"NEWSID": "fx-bse-2", "SCRIP_CD": 999901, "XML_NAME": "", "NEWSSUB": "Fixture Cables Ltd - 999901 - Credit Rating",
+     "DT_TM": "2026-10-28T16:05:00", "NEWS_DT": "2026-10-28T16:05:00", "DissemDT": "2026-10-28T16:05:00", "CRITICALNEWS": 0,
+     "ATTACHMENTNAME": "fx_rating.pdf", "HEADLINE": "", "CATEGORYNAME": "Company Update", "SUBCATNAME": "Credit Rating",
+     "SLONGNAME": "Fixture Cables Ltd", "Fld_Attachsize": 120000},
+    {"NEWSID": "fx-bse-3", "SCRIP_CD": 999901, "XML_NAME": "", "NEWSSUB": "Fixture Cables Ltd - 999901 - Certificate under Regulation 74(5) of SEBI (DP) Regulations, 2018",
+     "DT_TM": "2026-10-27T11:00:00", "NEWS_DT": "2026-10-27T11:00:00", "DissemDT": "2026-10-27T11:00:00", "CRITICALNEWS": 0,
+     "ATTACHMENTNAME": "fx_74_5.pdf", "HEADLINE": "", "CATEGORYNAME": "Company Update", "SUBCATNAME": "Certificate",
+     "SLONGNAME": "Fixture Cables Ltd", "Fld_Attachsize": 40000}
+  ]
+}

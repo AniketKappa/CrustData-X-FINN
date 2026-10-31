@@ -1,0 +1,44 @@
+# Explainable ranking (ARCHITECTURE §5.1). score = materiality * w_m + recency * w_r + relevance * w_p + confidence * w_c
+# Each component is 0..100; weights sum to 1. Tiers come from the score. All values are tunable.
+weights: {materiality: 0.55, recency: 0.15, relevance: 0.20, confidence: 0.10}
+recency_half_life_hours: 24
+relevance:
+  holding: 100
+  research: 60
+  other: 20
+tiers:                 # score cut-offs
+  high: 70
+  normal: 40           # below normal -> routine (collapsed)
+routine_max_materiality: 20   # below this, always routine (e.g. results newspaper ads)
+routine_categories: [unclassified, investor_meetings, agm_egm, postal_ballot]   # always routine regardless of score
+market_alert_materiality: 80
+# Materiality per category (REF §1 taxonomy). Subtype overrides refine a category.
+materiality:
+  results: 90
+  M&A: 85
+  fund_raise: 75
+  management_change: 75
+  litigation: 70
+  credit_rating: 60
+  pledging: 65
+  capex: 60
+  insider_trading: 50
+  bonus_split: 45
+  dividend: 35
+  press_release: 35
+  earnings_call: 30
+  investor_meetings: 15
+  agm_egm: 15
+  postal_ballot: 10
+  unclassified: 5
+subtype_materiality:
+  results_newspaper_ad: 15        # "ads confirming results were published"
+  results_board_meeting_notice: 30 # intimation of a future board meeting
+  management_change_top: 85       # CEO / CFO / MD / Chairman
+  management_change_independent_director: 40
+  credit_rating_downgrade: 85
+  credit_rating_reaffirmed: 35
+  earnings_call_transcript: 40
+  litigation_regulator: 80
+default_window_hours: 24
+allowed_window_hours: [24, 72, 168]
