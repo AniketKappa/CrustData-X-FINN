@@ -187,13 +187,40 @@ export function sectionSummary(sections, routineCount, windowLabel) {
     + `${n(routineCount, "routine filing")} collapsed below.`;
 }
 
+// Listen reads the briefing as it appears on screen, section by section, starting with market moves, and
+// says the numbers that are on each card (no greeting, no summary line).
+const spokenPct = (v) => `${v >= 0 ? "up" : "down"} ${Math.abs(v).toFixed(1)} percent`;
+const spokenCr = (v) => `${Math.round(v).toLocaleString("en-IN")} crore`;
+const plain = (t) => String(t || "").replace(/₹/g, "rupees ").replace(/×/g, " times").replace(/\s+/g, " ").trim();
+function speakItem(i) {
+  const co = plain(i.company).replace(/\s+(Ltd\.?|Limited)$/i, "");
+  if (i.alert) {
+    const parts = [];
+    if (i.chg != null) parts.push(`${i.liveSession ? "so far today " : ""}${spokenPct(i.chg)}`);
+    if (i.rules?.includes("volume") && i.mult) parts.push(`on ${i.mult.toFixed(1)} times its usual volume`);
+    return `${co}, ${parts.join(", ")}.`;
+  }
+  if (i.resultsBlock?.rows) {
+    const r = Object.fromEntries(i.resultsBlock.rows.map((x) => [x.metric, x]));
+    const bits = [];
+    if (r.Revenue?.value != null) bits.push(`revenue ${spokenCr(r.Revenue.value)}${r.Revenue.yoy != null ? `, ${spokenPct(r.Revenue.yoy)} year on year` : ""}`);
+    if (r.PAT?.value != null) bits.push(`profit ${spokenCr(r.PAT.value)}${r.PAT.yoy != null ? `, ${spokenPct(r.PAT.yoy)}` : ""}`);
+    if (bits.length) return `${co} results for ${plain(i.resultsBlock.periods[0])}: ${bits.join("; ")}.`;
+  }
+  if (i.person?.name) return `${co}: ${plain(i.person.name)} comes in as ${plain(i.person.role || "a new executive")}${i.person.outgoing ? `, replacing ${plain(i.person.outgoing)}` : ""}.`;
+  const text = i.summary?.text || i.title;
+  return `${co}: ${plain(text)}.`;
+}
 export function sectionSpeech(sections, routineCount, windowLabel) {
-  const lines = [`FINN briefing. ${sectionSummary(sections, routineCount, windowLabel)}`];
+  const lines = [];
   for (const s of sections) {
     if (!s.items.length) continue;
     lines.push(`${s.label}.`);
-    s.items.slice(0, 4).forEach((i) => lines.push(`${i.company}: ${i.title}.${i.news ? ` Reported by ${i.publisher}.` : ""}`));
-    if (s.items.length > 4) lines.push(`And ${s.items.length - 4} more.`);
+    s.items.slice(0, 5).forEach((i) => lines.push(speakItem(i)));
+    if (s.items.length > 5) lines.push(`And ${s.items.length - 5} more ${s.label.toLowerCase()}.`);
   }
+  if (!lines.length) lines.push(`Nothing new in the last ${windowLabel}.`);
+  if (routineCount) lines.push(`Plus ${routineCount} routine filing${routineCount > 1 ? "s" : ""}.`);
+  void sectionSummary;
   return lines.join(" ");
 }

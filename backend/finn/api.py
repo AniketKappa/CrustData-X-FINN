@@ -36,8 +36,8 @@ if MODE == "fixture":
     pipe.refresh_all()
 
 _refresh_lock = threading.Lock()
-_refresh_state: dict = {"running": False, "last_started": None, "last_finished": None, "last_result": None,
-                        "last_error": None}
+_refresh_state: dict = {"running": False, "stage": None, "last_started": None, "last_ready": None,
+                        "last_finished": None, "last_result": None, "last_error": None}
 
 
 def _do_refresh(force: bool = False) -> dict:
@@ -45,8 +45,14 @@ def _do_refresh(force: bool = False) -> dict:
     if not _refresh_lock.acquire(blocking=False):
         return {"running": True}
     try:
-        _refresh_state.update(running=True, last_started=datetime.now(timezone.utc).isoformat(), last_error=None)
-        result = pipe.refresh_all(force=force)
+        _refresh_state.update(running=True, stage="fetching", last_started=datetime.now(timezone.utc).isoformat(),
+                              last_error=None)
+
+        def on_stage(st: str) -> None:
+            _refresh_state["stage"] = st
+            if st == "ready":       # the Briefing can be shown now; PDFs and backgrounds keep filling in
+                _refresh_state["last_ready"] = datetime.now(timezone.utc).isoformat()
+        result = pipe.refresh_all(force=force, on_stage=on_stage)
         _refresh_state["last_result"] = result
         return result
     except Exception as e:  # noqa: BLE001 - a refresh must never take the API down
@@ -60,8 +66,38 @@ def _do_refresh(force: bool = False) -> dict:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     if MODE == "live" and os.environ.get("FINN_REFRESH_ON_START", "1") != "0":
-        threading.Thread(target=lambda: _safe(_do_refresh), daemon=True).start()
+        threading.Thread(target=_startup, daemon=True).start()
+        threading.Thread(target=_keep_fresh, daemon=True).start()
     yield
+
+
+def _startup() -> None:
+    """Fetch everything, then pre-build the research dossiers for the watchlist (the ad-hoc research companies),
+    one at a time, so opening them is instant. FINN_PREBUILD_RESEARCH=0 turns this off."""
+    import time as _t
+    _safe(_do_refresh)
+    n = int(os.environ.get("FINN_PREBUILD_RESEARCH", "4"))
+    if n <= 0 or not (pipe.research and pipe.research.llm and pipe.research.llm.available):
+        return
+    for c in pipe.portfolio.research[:n]:
+        try:
+            pipe.research.start(c.symbol)
+            for _ in range(240):                       # wait for this one before starting the next (shared quota)
+                if pipe.research.status(c.symbol).get("status") != "running":
+                    break
+                _t.sleep(2)
+        except Exception:  # noqa: BLE001 - prebuilding is a convenience; never crash the server
+            continue
+
+
+def _keep_fresh() -> None:
+    """While the server is awake, refresh every FINN_REFRESH_MINUTES (default 10) so opening the app shows recent
+    data without waiting. Source caches still decide what is actually re-downloaded."""
+    import time as _t
+    every = max(3, int(os.environ.get("FINN_REFRESH_MINUTES", "10"))) * 60
+    while True:
+        _t.sleep(every)
+        _safe(_do_refresh)
 
 
 def _safe(fn):
@@ -157,8 +193,12 @@ def add_holding(req: AddRequest) -> dict:
     if req.role not in ("holding", "research"):
         raise HTTPException(422, "role must be holding or research")
     c = pipe.add_company(Company(symbol=inst.code, name=req.name.strip() or inst.code, sector=req.sector, role=req.role))
-    threading.Thread(target=lambda: _safe(lambda: pipe.refresh_symbol(c.symbol)), daemon=True).start()
-    return {"added": c.model_dump(), "refreshing": True}
+    # Fetch the new company's prices, filings and news now (in parallel), waiting up to ~20 s so the Briefing that
+    # the app reloads next already includes it. Anything slower carries on in the background.
+    t = threading.Thread(target=lambda: _safe(lambda: pipe.refresh_symbol(c.symbol)), daemon=True)
+    t.start()
+    t.join(timeout=float(os.environ.get("FINN_ADD_WAIT_SECONDS", "20")))
+    return {"added": c.model_dump(), "refreshing": t.is_alive()}
 
 
 class RemoveRequest(BaseModel):
@@ -251,14 +291,17 @@ def research_status(symbol: str) -> dict:
 
 class AskRequest(BaseModel):
     question: str
+    history: list[dict] = []          # earlier turns [{question, answer}] for follow-ups (context only)
 
 
 @app.post("/v1/research/{symbol}/ask")
 def research_ask(symbol: str, req: AskRequest, request: Request) -> dict:
     if not req.question.strip():
         raise HTTPException(422, "question is empty")
-    _limit(request, "ask")
-    return pipe.research.ask(_sym(symbol), req.question)
+    from .research.engine import classify_question
+    if classify_question(req.question) == "question":
+        _limit(request, "ask")                       # greetings and off-topic replies don't use the model
+    return pipe.research.ask(_sym(symbol), req.question, req.history[-3:])
 
 
 @app.post("/jobs/refresh")

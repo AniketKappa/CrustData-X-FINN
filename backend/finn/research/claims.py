@@ -173,10 +173,15 @@ Sources:
 Return JSON exactly in this shape: {shape}"""
 
 
-ASK_TASK = """Answer the investor's question using only the sources. Lead with the direct answer in the first claim, then the
-supporting evidence. 2–6 claims. If the sources only partly answer, say what is missing in "gaps". Suggest up to 3 short
-follow-up questions that these kinds of documents could answer."""
-ASK_SHAPE = ('{"claims":[{"text":"sentence ending with citations [S1]","cites":["S1"]}],"gaps":["..."],'
+ASK_TASK = """Answer the investor's question using only the sources.
+- If the question is not about this company's business, results, plans, management or finances (for example small talk,
+  general knowledge, other companies, or anything the sources cannot speak to), return {"off_topic": true, "claims": []}.
+- If it is a follow-up, read the conversation so far to understand what "it", "that" or "why" refers to.
+- First claim: the direct answer in one sentence. Then 1–4 claims of supporting evidence, most specific first
+  (numbers, named products, dated plans). Only include what answers THIS question; skip loosely related facts.
+- If the sources only partly answer, say exactly what is missing in "gaps".
+- Suggest up to 3 short follow-up questions that the company's own documents could answer."""
+ASK_SHAPE = ('{"off_topic":false,"claims":[{"text":"sentence ending with citations [S1]","cites":["S1"]}],"gaps":["..."],'
              '"follow_ups":["short question"]}')
 
 BULL_BEAR_TASK = """Write a tight bull case and bear case for the stock, using only the sources (the company's own documents
@@ -198,10 +203,10 @@ GUIDANCE_SHAPE = ('{"items":[{"metric":"revenue_growth | ebitda_margin | pat_gro
 
 
 def guidance_prompt(call_title: str, sources: str) -> str:
-    return f"""Call: {call_title}
+    return f"""Calls: {call_title}. Each passage's header names the call it comes from.
 
 Passages:
 {sources}
 
-List every explicit guidance item (at most 8). Use null for low/high when no number was given.
-Return JSON exactly in this shape: {GUIDANCE_SHAPE}"""
+List every explicit guidance item (at most 10). Use null for low/high when no number was given. "cite" is the passage
+the quote comes from. Return JSON exactly in this shape: {GUIDANCE_SHAPE}"""

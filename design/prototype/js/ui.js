@@ -50,7 +50,7 @@ function row(i, { selected, older }) {
     <div class="li-top">${avatar(i.symbol, i.company)}<span class="li-co"><span class="nm">${esc(shortName(i.company))}</span>
       <span class="sub">${sym} · ${esc(timeAgo(i.published_at))}</span></span>${i.fixture ? `<span class="tag">Demo</span>` : ""}</div>
     <p class="li-head">${esc(head)}</p>${i.summary ? `<p class="li-sum">${esc(i.summary.text)}</p>` : ""}${r}${personMini(i.person)}
-    <div class="li-meta">${i.news ? SRC.news : SRC.filing}<span>${sourceLabel(i)}</span>${generic ? `<span>·</span><span>“${esc(i.title)}”</span>` : i.event && !i.alert ? `<span>·</span><span>${esc(i.event)}</span>` : ""}${i.related?.length ? `<span>·</span><span>+${i.related.length} more outlet${i.related.length > 1 ? "s" : ""}</span>` : ""}</div></a>`;
+    <div class="li-meta">${i.news ? SRC.news : SRC.filing}<span>${sourceLabel(i)}</span></div></a>`;
 }
 
 function personMini(p) {
@@ -60,7 +60,7 @@ function personMini(p) {
   return `<div class="person">
     <div class="person-row">${p.name ? `<span class="pk">Incoming</span><span class="pv">${esc(p.name)}</span>` : ""}
       ${p.outgoing ? `<span class="pk">Outgoing</span><span class="pv">${esc(p.outgoing)}</span>` : ""}<span class="pk">Role</span><span class="pv">${role}</span></div>
-    ${bg ? `<p class="person-bio">${esc(bg.replace(/\s*\[\d+\]/g, "").slice(0, 220))}${bg.length > 220 ? "…" : ""}</p>` : (p.name ? `<p class="person-bio muted">Background in details.</p>` : "")}</div>`;
+    ${bg ? `<p class="person-bio">${esc(bg.replace(/\s*\[\d+\]/g, "").slice(0, 140))}${bg.length > 140 ? "…" : ""}</p>` : ""}</div>`;
 }
 
 const CAP = 5;
@@ -71,6 +71,7 @@ export function briefingV3({ movers = [], sessions = 1, sections, routine, hidde
   const parts = sections.filter((s) => s.items.some((i) => !i.older)).map((s) => { const n = s.items.filter((i) => !i.older).length; return `${n} ${n === 1 ? s.one : s.many}`; });
   const sum = total
     ? `<b>${total} update${total === 1 ? "" : "s"}</b> across ${companies} of your ${holdings} holdings · last ${esc(w.label)}`
+    : live?.refreshing ? `Fetching prices, filings and news for your ${holdings} holdings…`
     : `A quiet ${esc(w.label)} for your ${holdings} holdings. Try 3D or 7D for the wider picture.`;
   void parts;
   const chips = [`<button type="button" class="chip" data-filter="all" aria-pressed="${filter === "all"}">All <span class="n">${total}</span></button>`]
@@ -80,18 +81,17 @@ export function briefingV3({ movers = [], sessions = 1, sections, routine, hidde
   const emptyNames = sections.filter((s) => !s.items.length).map((s) => s.label.toLowerCase());
   return `
   <section class="hero">
-    <p class="date">${esc(dayLong(asOf))}</p>
-    <h1>${esc(greeting(new Date().toISOString()))}</h1>
+    <p class="date">${esc(dayLong(asOf))} · ${live ? (live.fixture ? "Demo data" : `Updated ${esc(clock(asOf))}`) : "Demo data"}</p>
+    <h1>Briefing</h1>
     <p class="sum">${sum}</p>
     <div class="hero-meta">
-      <span>${live ? (live.fixture ? "Demo data" : `Updated ${esc(clock(asOf))}`) : "Demo data"}</span>
-      ${live ? `<span class="dot"></span><button type="button" data-act="refresh" ${live.refreshing ? 'disabled aria-busy="true"' : ""}>${SRC.refresh}${live.refreshing ? "Updating…" : "Refresh"}</button>` : ""}
+      ${live ? `<button type="button" data-act="refresh" ${live.refreshing ? 'disabled aria-busy="true"' : ""}>${SRC.refresh}${live.refreshing ? "Updating…" : "Refresh"}</button>` : ""}
       <span class="dot"></span><button type="button" data-act="listen" ${speechOk ? "" : "disabled"} aria-pressed="${speaking}">${speaking ? I.stop + "Stop" : I.speaker + "Listen"}</button>
     </div>
     ${live?.message ? `<p class="note" role="status" style="margin-top:8px">${esc(live.message)}</p>` : ""}
   </section>
   <div class="toolbar brief"><div class="seg" role="group" aria-label="Time window">${seg}</div></div>
-  <div class="chips" role="group" aria-label="Show">${chips}</div>
+  <nav class="tabbar" role="group" aria-label="Show">${chips}</nav>
   ${filter === "all" && movers.length ? `<section class="bsec" aria-labelledby="h-movers">
     <div class="sec-head"><h2 class="sec-title" id="h-movers">Biggest moves</h2><span class="sec-sub">${sessions === 1 ? (movers.some((m) => m.live) ? "today so far" : "last session") : `last ${sessions} sessions`}</span></div>
     <div class="movers">${movers.map((m) => `<a class="mover" href="#/company/${encodeURIComponent(m.symbol)}/overview"><span class="tk">${esc(m.symbol)}</span><span class="nm">${esc(shortName(m.name))}</span>${pctPill(m.chg)}</a>`).join("")}</div></section>` : ""}
@@ -103,7 +103,8 @@ export function briefingV3({ movers = [], sessions = 1, sections, routine, hidde
       <div class="sec-head"><h2 class="sec-title" id="h-${s.id}">${esc(s.label)}<span class="n">${s.items.length}</span></h2></div>
       <div class="card list">${shownItems.map((i) => row(i, { selected: i.id === selectedId })).join("")}
         ${rest > 0 ? `<button type="button" class="more-row" data-more="${s.id}">Show ${rest} more</button>` : open && s.items.length > CAP && filter !== s.id ? `<button type="button" class="more-row" data-more="${s.id}">Show fewer</button>` : ""}</div></section>`;
-  }).join("") || `<div class="card empty-card">Nothing here in the last ${esc(w.label)}. Try a longer window.</div>`}
+  }).join("") || (live?.refreshing ? `<div class="skeleton" aria-hidden="true" style="margin-top:16px"><span></span><span></span><span></span></div><p class="note" role="status">Getting the latest data. This takes a few seconds; the list fills in on its own.</p>`
+    : `<div class="card empty-card">Nothing here in the last ${esc(w.label)}. Try a longer window.</div>`)}
   ${filter === "all" && emptyNames.length && shown.length ? `<p class="empty-line">No ${esc(emptyNames.join(", "))} in the last ${esc(w.label)}.</p>` : ""}
   ${filter === "all" ? `<section class="routine">
     <button type="button" class="disclose" data-act="routine" aria-expanded="${routineOpen}" aria-controls="routine-list">
@@ -204,7 +205,7 @@ export function portfolioV3({ holdings, watchlist, tab, editing, editable, live,
     return `<a class="li" style="display:flex;align-items:center;gap:12px" href="#/company/${encodeURIComponent(c.symbol)}/overview">${who}${right}</a>`;
   };
   const n = [...selected].filter((sym) => list.some((c) => c.symbol === sym)).length;
-  return `<section class="hero"><p class="date">Portfolio</p><h1>Your stocks</h1>
+  return `<section class="hero"><h1>Portfolio</h1>
     <p class="sum">${holdings.length} holdings · ${watchlist.length} on your watchlist${asOf ? ` · prices at ${esc(shortDate(asOf))}` : ""}</p></section>
     ${live ? `<div class="searchbox">${SRC.search}<label class="sr" for="stock-search">Search NSE or BSE stocks</label>
       <input id="stock-search" type="search" autocomplete="off" placeholder="Search any NSE or BSE stock" value="${esc(query || "")}"></div>
@@ -219,7 +220,7 @@ export function portfolioV3({ holdings, watchlist, tab, editing, editable, live,
       <span class="note">${n ? `${n} selected` : "Tick stocks to delete"}</span></div>` : ""}
     <div class="card list">${list.map(rowp).join("") || `<div class="empty-card">No stocks here yet.${editable ? " Tap Edit, then Add." : ""}</div>`}</div>
     ${!editable && !live ? `<p class="note">Run FINN's backend to change your lists; this view shows the demo list.</p>` : ""}
-    ${live ? `<p class="caption" style="text-align:center">Prices: Yahoo Finance (in-session prices may lag ~15 min). Changes update the Briefing after the next refresh.</p>` : ""}`;
+`;
 }
 
 // Search results. mode "view": open the company page. mode "add": one Add button into the list being edited.

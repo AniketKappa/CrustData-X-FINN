@@ -8,7 +8,9 @@ services:
     healthCheckPath: /health
     envVars:
       - key: FINN_AR_MAX_PAGES
-        value: "90"            # read fewer annual-report pages to fit 512 MB
+        value: "60"            # annual-report pages read for research (company overview, segments, letters)
+      - key: FINN_REFRESH_MINUTES
+        value: "10"            # background refresh while the server is awake
       - key: GROQ_API_KEY
         sync: false            # you paste the value in Render's dashboard; never committed
       - key: OPENROUTER_API_KEY

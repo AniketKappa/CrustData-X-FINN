@@ -27,12 +27,12 @@ from .ledger import VERDICT_LABEL, LedgerRow, evaluate, scorecard
 from .numbers import Fact, build as build_numbers, quarter_actuals
 from .retrieve import BM25, budget
 
-STEPS = [("fundamentals", "Company tables and document links"), ("documents", "Reading the company's documents"),
-         ("numbers", "Computing the numbers"), ("business", "Business snapshot"), ("guidance", "Finding guidance on each call"),
-         ("ledger", "Checking promises against results"), ("narrative", "Management's explanation"),
-         ("bull_bear", "Bull and bear case")]
+STEPS = [("fundamentals", "Company tables and document links"), ("numbers", "Computing the numbers"),
+         ("documents", "Reading the company's documents"), ("business", "Business snapshot"),
+         ("guidance", "Finding guidance on each call"), ("narrative", "Management's explanation"),
+         ("ledger", "Checking promises against results"), ("bull_bear", "Bull and bear case")]
 CACHE_HOURS = 24
-VERSION = "r1"
+VERSION = "r2"
 
 GUIDANCE_QUERY = ("guidance expect expecting target targeting outlook going forward next year full year FY growth margin "
                   "EBITDA capex invest crore percent double digit range aspire aim confident achieve maintain sustain")
@@ -88,9 +88,17 @@ class ResearchEngine:
         self._run_safe(job)
         return job
 
-    def ask(self, symbol: str, question: str) -> dict:
+    def ask(self, symbol: str, question: str, history: Optional[list[dict]] = None) -> dict:
+        """Grounded answer to a question about one company. `history` = earlier turns [{question, answer}] so a
+        follow-up ("why?", "and margins?") is understood; history is context only and is never cited."""
         symbol = symbol.upper()
-        q = question.strip()[:400]
+        q = " ".join(question.split())[:400]
+        name = self.company_name(symbol) or self.status(symbol).get("name") or symbol
+        history = [h for h in (history or []) if isinstance(h, dict) and h.get("question")][-3:]
+        kind = classify_question(q)
+        if kind != "question":                       # greetings, thanks, empty or not about the company: no model call
+            return {"question": q, "status": kind, "claims": [], "gaps": [], "sources": {},
+                    "message": _reply_for(kind, name), "follow_ups": _starter_questions()}
         if not self.llm or not self.llm.available:
             return {"question": q, "status": "no_llm", "claims": [], "gaps": [],
                     "message": "Answers need a free Groq or OpenRouter key in .env."}
@@ -99,23 +107,37 @@ class ResearchEngine:
             return {"question": q, "status": "no_docs", "claims": [], "gaps": [],
                     "message": "Open the research dossier first so FINN can read the company's documents."}
         chunks, bm, docs = idx
-        hits = [c for c, _ in bm.search(q, k=12, boost={"transcript": 1.1, "presentation": 1.05})]
-        hits = budget(hits, 11000)
-        facts = self._facts(symbol)
-        rel = _relevant_facts(q, facts)
+        search_q = q
+        if history and is_follow_up(q):              # "why?" -> search with the topic of the previous question
+            search_q = f"{history[-1]['question']} {q}"
+        scored = bm.search(search_q, k=14, boost={"transcript": 1.1, "presentation": 1.05})
+        if not scored or scored[0][1] < 0.5:          # nothing in the documents is about this
+            return {"question": q, "status": "not_found", "claims": [], "gaps": [], "sources": {},
+                    "message": f"{name}'s documents that FINN read don't discuss this. Try asking about its business, "
+                               "results, margins, guidance, debt, cash flow or risks.", "follow_ups": _starter_questions()}
+        hits = budget([c for c, _ in scored], 11500)
+        rel = _relevant_facts(search_q, self._facts(symbol))
         src, smap = source_block(hits, rel)
-        prompt = f"Investor's question about {self.company_name(symbol) or symbol}: {q}\n\n" + \
-                 section_prompt(ASK_TASK, src, ASK_SHAPE)
+        convo = ""
+        if history:
+            convo = "Conversation so far (context only - do not cite this, cite only the sources):\n" + "\n".join(
+                f"Q: {h['question'][:200]}\nA: {str(h.get('answer') or '')[:300]}" for h in history) + "\n\n"
+        prompt = f"Company: {name}\n{convo}Investor's question: {q}\n\n" + section_prompt(ASK_TASK, src, ASK_SHAPE)
         raw = self.llm.complete_json(prompt, system=SYSTEM, max_tokens=900, route="long")
         if raw is None:
             return {"question": q, "status": "llm_failed", "claims": [], "gaps": [],
                     "message": f"The free model quota is busy right now ({self.llm.last_error}). Try again in a minute."}
+        if raw.get("off_topic") is True:
+            return {"question": q, "status": "off_topic", "claims": [], "gaps": [], "sources": {},
+                    "message": _reply_for("off_topic", name), "follow_ups": _starter_questions()}
         checked = check_claims(raw, smap)
         out = _publish(checked, smap)
         out.update(question=q, status="ok", follow_ups=[str(x)[:120] for x in (raw.get("follow_ups") or [])][:3],
                    model=f"{self.llm.last_provider}/{self.llm.last_model}")
-        if not out["claims"] and not out["gaps"]:
-            out["gaps"] = ["The company's documents FINN read don't answer this."]
+        if not out["claims"]:
+            out["status"] = "not_found"
+            out["message"] = (f"{name}'s documents that FINN read don't answer this clearly. "
+                              + (" ".join(out["gaps"][:1]) if out["gaps"] else ""))
         return out
 
     # ------------------------------------------------------------ job
@@ -149,6 +171,10 @@ class ResearchEngine:
             self.jobs.pop(job["symbol"], None)
 
     def _run(self, job: dict) -> None:
+        """Fast path: numbers first (seconds), documents downloaded and read in parallel, then the model sections in
+        parallel (they don't depend on each other), then the ledger and the bull/bear case."""
+        from concurrent.futures import ThreadPoolExecutor
+
         sym = job["symbol"]
         self._step(job, "fundamentals", "running")
         snap = self.get_snapshot(sym)
@@ -161,15 +187,27 @@ class ResearchEngine:
         lender = self.is_lender(sym, snap)
         self._step(job, "fundamentals", "done")
 
-        # documents
+        # numbers: from the tables, in code - shown while the documents download
+        self._step(job, "numbers", "running")
+        sections, fb = build_numbers(snap, lender)
+        job["numbers"] = [s.model_dump(mode="json") for s in sections]
+        job["facts"] = {f.id: f.model_dump(mode="json") for f in fb.facts}
+        job["lender"] = lender
+        actuals = quarter_actuals(snap)
+        job["quarters"] = actuals[-8:]
+        self._step(job, "numbers", "done")
+
+        # documents: all at once
         self._step(job, "documents", "running")
         wanted = select_docs(snap)
+        job["documents"] = [d.model_dump(mode="json") for d in wanted]
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            loaded = list(ex.map(self.docs.load, wanted))
         docs, chunks = [], []
-        for d in wanted:
-            d2, pages = self.docs.load(d)
+        for d2, pages in loaded:
             docs.append(d2)
-            job["documents"] = [x.model_dump(mode="json") for x in docs]
             chunks += chunk_pages(d2, pages)
+        job["documents"] = [x.model_dump(mode="json") for x in docs]
         ok = [d for d in docs if d.status == "ok"]
         self._step(job, "documents", "done" if ok else "failed",
                    f"Read {len(ok)} of {len(docs)} documents" if docs else "No transcripts or reports are linked for this company.")
@@ -177,39 +215,54 @@ class ResearchEngine:
         if bm:
             self._indexes[sym] = (chunks, bm, docs)
 
-        # numbers
-        self._step(job, "numbers", "running")
-        sections, fb = build_numbers(snap, lender)
-        job["numbers"] = [s.model_dump(mode="json") for s in sections]
-        job["facts"] = {f.id: f.model_dump(mode="json") for f in fb.facts}
-        job["lender"] = lender
-        self._step(job, "numbers", "done")
-        actuals = quarter_actuals(snap)
-        job["quarters"] = actuals[-8:]
-
         llm_ok = bool(self.llm and self.llm.available)
         no_llm = "Needs a free Groq or OpenRouter key in .env."
+        transcripts = [d for d in ok if d.kind == "transcript"]
+        rows: list[LedgerRow] = []
 
-        # business
-        if not llm_ok or not bm:
-            self._step(job, "business", "skipped", no_llm if not llm_ok else "No documents to read.")
-        else:
+        def business():
             self._step(job, "business", "running")
             job["sections"]["business"] = self._section(bm, "business", ("annual_report", "presentation"), [],
                                                         company=job["name"])
             self._step(job, "business", "done")
 
-        # guidance + ledger
-        transcripts = [d for d in ok if d.kind == "transcript"]
-        rows: list[LedgerRow] = []
-        if not llm_ok or not transcripts:
-            self._step(job, "guidance", "skipped", no_llm if not llm_ok else "No call transcripts are available.")
-        else:
+        def guidance():
             self._step(job, "guidance", "running")
-            for d in transcripts:
-                rows += self._guidance(bm, d)
-                job["sections"]["guidance"] = {"rows": [r.model_dump(mode="json") for r in rows]}
-            self._step(job, "guidance", "done", f"{len(rows)} guidance statements from {len(transcripts)} calls")
+            found = self._guidance_all(bm, transcripts)
+            rows.extend(found)
+            job["sections"]["guidance"] = {"rows": [r.model_dump(mode="json") for r in found]}
+            self._step(job, "guidance", "done", f"{len(found)} guidance statements from {len(transcripts)} calls")
+
+        def narrative():
+            self._step(job, "narrative", "running")
+            latest = {d.id for d in transcripts[:2]}
+            ffacts = [f for f in fb.facts if f.label.startswith(("Operating margin", "Revenue growth", "Net profit growth"))]
+            job["sections"]["narrative"] = self._section(bm, "narrative", ("transcript",), ffacts, doc_ids=latest,
+                                                         company=job["name"])
+            self._step(job, "narrative", "done")
+
+        tasks = []
+        if not llm_ok or not bm:
+            for sid in ("business", "guidance", "narrative"):
+                self._step(job, sid, "skipped", no_llm if not llm_ok else "No documents to read.")
+        else:
+            tasks.append(business)
+            if transcripts:
+                tasks += [guidance, narrative]
+            else:
+                self._step(job, "guidance", "skipped", "No call transcripts are available.")
+                self._step(job, "narrative", "skipped", "No call transcripts are available.")
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            for f in [ex.submit(t) for t in tasks]:
+                try:
+                    f.result()
+                except Exception:  # noqa: BLE001 - one section failing must not lose the others
+                    pass
+        for sid in ("business", "guidance", "narrative"):
+            if next(s for s in job["steps"] if s["id"] == sid)["status"] == "running":
+                self._step(job, sid, "failed")
+
+        # ledger: code only
         self._step(job, "ledger", "running")
         label_of = {d.id: d.title.split(" call")[0] for d in transcripts}
         for r in rows:
@@ -219,25 +272,12 @@ class ResearchEngine:
         self._step(job, "ledger", "done" if rows else "skipped",
                    None if rows else ("No guidance found to check." if llm_ok and transcripts else None))
 
-        # narrative
-        if not llm_ok or not transcripts:
-            self._step(job, "narrative", "skipped", no_llm if not llm_ok else "No call transcripts are available.")
-        else:
-            self._step(job, "narrative", "running")
-            latest = {d.id for d in transcripts[:2]}
-            ffacts = [f for f in fb.facts if f.label.startswith(("Operating margin", "Revenue growth", "Net profit growth"))]
-            job["sections"]["narrative"] = self._section(bm, "narrative", ("transcript",), ffacts, doc_ids=latest,
-                                                         company=job["name"])
-            self._step(job, "narrative", "done")
-
-        # bull vs bear
         if not llm_ok or not bm:
             self._step(job, "bull_bear", "skipped", no_llm if not llm_ok else "No documents to read.")
         else:
             self._step(job, "bull_bear", "running")
             job["sections"]["bull_bear"] = self._bull_bear(bm, fb.facts, rows, job["name"])
             self._step(job, "bull_bear", "done")
-
         job["usage"] = self.llm.usage_summary() if llm_ok else None
 
     # ------------------------------------------------------------ pieces
@@ -256,12 +296,22 @@ class ResearchEngine:
         out["title"] = title
         return out
 
-    def _guidance(self, bm: BM25, d: Doc) -> list[LedgerRow]:
-        hits = budget([c for c, _ in bm.search(GUIDANCE_QUERY, k=10, doc_ids={d.id})], 7000)
+    def _guidance_all(self, bm: BM25, transcripts: list[Doc]) -> list[LedgerRow]:
+        """One model call for all calls: the best ~2,400 characters of guidance talk from each transcript."""
+        hits: list[Chunk] = []
+        for d in transcripts:
+            hits += budget([c for c, _ in bm.search(GUIDANCE_QUERY, k=5, doc_ids={d.id})], 2400)
         if not hits:
             return []
+        return self._guidance_from(hits, ", ".join(d.title.split(" (")[0] for d in transcripts))
+
+    def _guidance(self, bm: BM25, d: Doc) -> list[LedgerRow]:
+        hits = budget([c for c, _ in bm.search(GUIDANCE_QUERY, k=10, doc_ids={d.id})], 7000)
+        return self._guidance_from(hits, d.title) if hits else []
+
+    def _guidance_from(self, hits: list[Chunk], calls: str) -> list[LedgerRow]:
         src, smap = source_block(hits, [])
-        raw = self.llm.complete_json(guidance_prompt(d.title, src), system=GUIDANCE_SYSTEM, max_tokens=900, route="fast")
+        raw = self.llm.complete_json(guidance_prompt(calls, src), system=GUIDANCE_SYSTEM, max_tokens=1100, route="fast")
         rows = []
         for it in (raw or {}).get("items") or []:
             if not isinstance(it, dict):
@@ -275,7 +325,7 @@ class ResearchEngine:
             low, high = _num(it.get("low")), _num(it.get("high"))
             if low is not None and high is not None and low > high:
                 low, high = high, low
-            rows.append(LedgerRow(said_in=d.title.split(" (")[0].replace(" transcript", ""),
+            rows.append(LedgerRow(said_in=c.title.split(" (")[0].replace(" transcript", ""),
                                   metric=str(it.get("metric") or "other").split("|")[0].strip().lower(),
                                   statement=str(it.get("statement") or "")[:240], quote=quote[:400],
                                   cite={"doc_id": c.doc_id, "title": c.title, "page": c.page, "url": f"{c.url}#page={c.page}",
@@ -348,6 +398,52 @@ def _publish(checked, smap: dict) -> dict:
                 ids.append(f.id)
         claims.append({"text": c.text, "cites": ids})
     return {"claims": claims, "gaps": checked.gaps, "dropped": checked.dropped, "sources": sources}
+
+
+_SMALL_TALK = re.compile(r"^(hi+|hello+|hey+|hiya|yo|sup|namaste|good (morning|afternoon|evening|night)|thanks?( you)?|"
+                         r"thank u|ok(ay)?|cool|nice|great|bye|test(ing)?|hmm+|who are you|what can you do|help)[\s!.?]*$", re.I)
+_FINANCE = re.compile(r"revenue|sales|growth|margin|ebitda|profit|pat|pbt|loss|debt|borrow|cash|capex|guidance|guide|"
+                      r"outlook|segment|business|product|customer|plant|capacity|risk|competition|demand|price|pricing|"
+                      r"order|export|dividend|management|ceo|cfo|strategy|acquisi|merger|subsidiar|working capital|"
+                      r"inventory|receivable|valuation|return|roe|roce|share|quarter|fy\d|year|promise|deliver|"
+                      r"why|how|what|explain|compare|trend|cost|expense|tax|interest|rating|plan|target|expect", re.I)
+_OFF_TOPIC = re.compile(r"\b(weather|cricket|movie|song|recipe|joke|poem|girlfriend|boyfriend|homework|code|python|"
+                        r"president|prime minister|election|bitcoin|crypto)\b", re.I)
+_FOLLOW = re.compile(r"^(why|how( so)?|and|what about|how about|so|then|explain|elaborate|more|details?|really|is that)\b|"
+                     r"\b(it|that|this|those|these|they|them|its)\b", re.I)
+
+
+def classify_question(q: str) -> str:
+    """question | greeting | off_topic | empty. Cheap rules first, so small talk never reaches a model."""
+    t = q.strip()
+    if len(t) < 2:
+        return "empty"
+    if _SMALL_TALK.match(t):
+        return "greeting"
+    if _OFF_TOPIC.search(t) and not _FINANCE.search(t.replace("what", "").replace("how", "").replace("why", "")):
+        return "off_topic"
+    if len(t.split()) <= 2 and not _FINANCE.search(t):
+        return "off_topic"
+    return "question"
+
+
+def is_follow_up(q: str) -> bool:
+    return len(q.split()) <= 8 and bool(_FOLLOW.search(q))
+
+
+def _reply_for(kind: str, name: str) -> str:
+    if kind == "greeting":
+        return (f"Hi! I answer questions about {name} from its own annual report, call transcripts and investor "
+                "presentation, with a source for every sentence. Try one of these:")
+    if kind == "empty":
+        return "Type a question about the company."
+    return (f"I can only answer questions about {name}'s business and financials, from the company's own documents. "
+            "Try one of these:")
+
+
+def _starter_questions() -> list[str]:
+    return ["What does the company do, and where does revenue come from?", "What did management guide for this year?",
+            "What risks did management name on the last call?"]
 
 
 def _relevant_facts(q: str, facts: list[Fact], k: int = 14) -> list[Fact]:

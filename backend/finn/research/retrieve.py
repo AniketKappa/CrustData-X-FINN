@@ -15,9 +15,19 @@ under about more most less least just only any all each both other some own same
 once ladies gentlemen thank thanks please sir madam question questions answer moderator""".split())
 
 
+def _stem(w: str) -> str:
+    """Very light stemming so "margins" finds "margin" and "guided" finds "guidance"-style pages."""
+    if w[0].isdigit() or len(w) <= 4:
+        return w
+    for suf, rep in (("ies", "y"), ("ing", ""), ("ed", ""), ("es", ""), ("s", "")):
+        if w.endswith(suf) and len(w) - len(suf) >= 4 and not w.endswith("ss"):
+            return w[: -len(suf)] + rep
+    return w
+
+
 def tokens(text: str) -> list[str]:
     words = re.findall(r"[a-z0-9]+(?:\.[0-9]+)?%?", text.lower())
-    return [w for w in words if w not in _STOP and len(w) > 1]
+    return [_stem(w) for w in words if w not in _STOP and len(w) > 1]
 
 
 class BM25:

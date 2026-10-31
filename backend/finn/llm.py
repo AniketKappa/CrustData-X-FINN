@@ -144,15 +144,24 @@ class LLM:
             return self._cache[h]
         msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
         need = est_tokens((system or "") + prompt) + max_tokens
-        for prov, key, base, model in self.slots(route):
-            if need > self._tpm(model):
-                continue                                   # this model can never take a request this large
-            wait = self.budget.wait_needed(model, need, self._tpm(model))
+        # Prefer a model that has budget right now (so parallel calls spread over models instead of queueing on one);
+        # if every model is busy, wait for whichever frees up first. Failures fall through to the next slot.
+        tried: set[str] = set()
+        for _ in range(4):
+            cands = []
+            for i, (prov, key, base, model) in enumerate(self.slots(route)):
+                if model in tried or need > self._tpm(model):
+                    continue
+                cands.append((self.budget.wait_needed(model, need, self._tpm(model)), i, prov, key, base, model))
+            if not cands:
+                return None
+            wait, _, prov, key, base, model = min(cands, key=lambda c: (c[0] > 0, c[0], c[1]))
             if wait > MAX_WAIT_S:
                 self.last_error = f"{model}: minute budget used"
-                continue
+                return None
             if wait:
                 self._sleep(wait)
+            tried.add(model)
             text = self._post(route, prov, key, base, model, msgs, max_tokens, json_mode, need)
             if text:
                 self._cache[h] = text

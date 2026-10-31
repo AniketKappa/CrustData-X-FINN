@@ -68,6 +68,41 @@ class YFinanceProvider:
         return frame_to_bars(frame, inst, source="yfinance")
 
 
+def _yf_download(yahoo_symbols: list[str], days: int, timeout: float):
+    import yfinance as yf
+
+    return yf.download(tickers=" ".join(yahoo_symbols), period=f"{days}d", interval="1d", group_by="ticker",
+                       auto_adjust=False, actions=False, threads=True, progress=False, timeout=timeout)
+
+
+def fetch_many_yf(provider: "YFinanceProvider", insts: list[Instrument], days: int,
+                  download=_yf_download) -> dict[str, "list[PriceBar] | PriceProviderError"]:
+    """One request for many symbols (much faster than one per symbol). Symbols missing from the answer fall back
+    to the single-symbol path, so one bad ticker never blanks the rest."""
+    out: dict = {}
+    try:
+        frame = download([i.yahoo for i in insts], days, provider._timeout * 3)
+    except Exception:  # noqa: BLE001 - fall back to one-by-one
+        frame = None
+    for inst in insts:
+        sub = None
+        if frame is not None and not getattr(frame, "empty", True):
+            try:
+                cols = frame.columns
+                sub = frame[inst.yahoo] if getattr(cols, "nlevels", 1) > 1 and inst.yahoo in cols.get_level_values(0) else (
+                    frame if len(insts) == 1 else None)
+                if sub is not None:
+                    sub = sub.dropna(how="all")
+            except Exception:  # noqa: BLE001
+                sub = None
+        try:
+            out[inst.key] = frame_to_bars(sub, inst, source="yfinance") if sub is not None and not sub.empty \
+                else provider.fetch(inst, days)
+        except PriceProviderError as e:
+            out[inst.key] = e
+    return out
+
+
 def _looks_like_no_data(msg: str) -> bool:
     m = msg.lower()
     return any(s in m for s in ("no data found", "possibly delisted", "no timezone found", "symbol may be delisted",

@@ -103,3 +103,18 @@ def test_ask_answers_with_citations_only():
     for c in a["claims"]:
         for ci in c["cites"]:
             assert ci in a["sources"] and a["sources"][ci]["url"]
+
+
+def test_ask_handles_small_talk_off_topic_and_follow_ups():
+    from finn.research.engine import classify_question, is_follow_up
+    assert classify_question("hi") == "greeting" and classify_question("Thanks!") == "greeting"
+    assert classify_question("who won the cricket match") == "off_topic"
+    assert classify_question("banana") == "off_topic"
+    assert classify_question("What drove margins last quarter?") == "question"
+    assert is_follow_up("why?") and is_follow_up("what about exports") and not is_follow_up("What is the revenue mix of the company by segment in FY26?")
+    p = _pipe()
+    p.research.build("FXCABLES")
+    hi = p.research.ask("FXCABLES", "hello")
+    assert hi["status"] == "greeting" and not hi["claims"] and hi["follow_ups"]
+    fu = p.research.ask("FXCABLES", "why?", [{"question": "What happened to EBITDA margin?", "answer": "It declined."}])
+    assert fu["status"] in ("ok", "not_found")

@@ -5,12 +5,12 @@ http:
   max_retries: 2              # bounded: 1 try + 2 retries
   backoff_seconds: 1.0        # 1s, 2s (exponential), capped
   backoff_cap_seconds: 8
-  min_delay_seconds: 1.0      # politeness delay per host
+  min_delay_seconds: 0.3      # politeness: at most ~3 requests a second to any one host (requests are spread over hosts in parallel)
   user_agent: "FINN-research-prototype/0.1 (personal, non-commercial)"
 prices:
   provider: yfinance          # yfinance | fixture
   history_days: 60
-  cache_ttl_minutes: 30       # a symbol is not re-fetched more often than this
+  cache_ttl_minutes: 10       # a symbol is not re-fetched more often than this (in-session prices stay current)
   failure_backoff_minutes: 15 # after a failure, wait this long before trying the symbol again
 announcements:
   cache_ttl_minutes: 10
@@ -40,7 +40,7 @@ news:
   # D-51: headlines only (EXTERNAL_WEB), labelled as media reports and kept apart from filings.
   enabled: true
   status: unverified           # not yet fetched by FINN; run `python -m finn check-live`
-  cache_ttl_minutes: 60
+  cache_ttl_minutes: 15
   failure_backoff_minutes: 30
   lookback_days: 7
   max_items: 80                # stories (after clustering) kept for the 7-day digest; the app shows ~6 per section

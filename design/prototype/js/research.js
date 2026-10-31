@@ -53,8 +53,8 @@ function gapsLine(gaps) {
 
 // ---------- picker ----------
 export function researchPicker({ query, results, mine, llm }) {
-  return `<section class="hero"><p class="date">Research</p><h1>Dig into any company</h1>
-    <p class="sum">FINN reads the company's own annual report, call transcripts and investor presentation, checks management's promises against reported numbers, and cites every sentence. No news or broker views.</p></section>
+  return `<section class="hero"><h1>Research</h1>
+    <p class="sum">Any NSE company, from its own reports and calls. Every sentence cited.</p></section>
     <div class="searchbox">${SEARCH}<label class="sr" for="research-search">Company name or NSE symbol</label>
       <input id="research-search" type="search" autocomplete="off" placeholder="Any NSE company — name or symbol" value="${esc(query || "")}"></div>
     <div id="research-results">${results || ""}</div>
@@ -70,7 +70,7 @@ export function researchResults(results, note) {
 // ---------- dossier ----------
 const NAV = [["glance", "Summary"], ["business", "Business"], ["promises", "Promises"], ["numbers", "Numbers"], ["cash", "Cash & debt"], ["case", "Bull & bear"], ["docs", "Sources"]];
 
-export function researchDossier({ sym, d, notes, asking, speechIn }) {
+export function researchDossier({ sym, d, notes, asking, speechIn, listening }) {
   const name = d?.name || sym;
   const running = d?.status === "running";
   const head = `<section class="r-head">${avatar(sym, name, true)}<div class="r-id"><h1>${esc(shortName(name))}</h1>
@@ -87,17 +87,17 @@ export function researchDossier({ sym, d, notes, asking, speechIn }) {
   const S = d.sections || {};
   let html = head;
   if (running || d.steps?.some((s) => s.status === "failed")) html += progress(d);
-  html += `<nav class="r-nav" aria-label="Dossier sections">${NAV.map(([id, l]) => `<button type="button" data-jump="r-${id}">${l}</button>`).join("")}</nav>`;
+  html += `<nav class="r-nav tabbar" aria-label="Dossier sections">${NAV.map(([id, l], k) => `<button type="button" class="chip" data-jump="r-${id}" aria-pressed="${k === 0}">${l}</button>`).join("")}</nav>`;
   html += glance(d, counter);
   html += section("business", "Business snapshot", S.business ? claimList(S.business.claims, S.business.sources, counter) + gapsLine(S.business.gaps) + llmMsg(S.business) : pendingOr(d, "business"),
     "From the annual report and investor presentation.");
   html += section("promises", "Promised vs delivered", ledger(d, counter), "Guidance from the last four calls, checked in code against reported quarters.");
-  if (S.narrative) html += section("narrative", "What management says drove the numbers", claimList(S.narrative.claims, S.narrative.sources, counter) + gapsLine(S.narrative.gaps) + llmMsg(S.narrative), "From the latest call transcripts.");
+  if (S.narrative) html += section("narrative", "What drove the numbers", claimList(S.narrative.claims, S.narrative.sources, counter) + gapsLine(S.narrative.gaps) + llmMsg(S.narrative), "From the latest call transcripts.");
   html += numbersBlock(d, ["financial", "trajectory"], "numbers", "Financial snapshot and trajectory", counter);
   html += numbersBlock(d, ["balance", "cash"], "cash", "Balance sheet and cash quality", counter);
   html += section("case", "Bull vs bear", bullBear(S.bull_bear, counter) || pendingOr(d, "bull_bear"), "A tight case each way, from the same sources.");
   html += section("docs", "Sources", docsList(d), "Only the company's own documents; numbers from reported tables.");
-  html += askBlock({ sym, name, notes, asking, speechIn });
+  html += askBlock({ sym, name, notes, asking, speechIn, listening });
   return html;
 }
 
@@ -113,12 +113,12 @@ function llmMsg(sec) { return sec?.message ? `<p class="note">${esc(sec.message)
 
 function progress(d) {
   return `<div class="card r-progress" role="status" aria-live="polite"><ol>${d.steps.map((s) => `<li class="st-${s.status}"><span class="dot" aria-hidden="true">${STEP_ICON[s.status] || ""}</span><span>${esc(s.label)}${s.note ? ` <span class="muted">· ${esc(s.note)}</span>` : ""}</span></li>`).join("")}</ol>
-    <p class="caption">Reading PDFs takes a minute the first time; the dossier is then kept for a day.</p></div>`;
+</div>`;
 }
 
-function section(id, title, body, sub) {
+function section(id, title, body) {
   return `<section class="r-sec" id="r-${id}" aria-labelledby="rh-${id}"><div class="sec-head"><h2 class="sec-title" id="rh-${id}">${esc(title)}</h2></div>
-    ${sub ? `<p class="r-sub">${esc(sub)}</p>` : ""}<div class="card r-body">${body || `<p class="note">Nothing to show.</p>`}</div></section>`;
+    <div class="card r-body">${body || `<p class="note">Nothing to show.</p>`}</div></section>`;
 }
 
 function fact(d, id) { return d.facts?.[id]; }
@@ -182,7 +182,7 @@ function numbersBlock(d, ids, anchor, title, counter) {
     if (s.notes.length) h += `<p class="note">${esc(s.notes.join(" "))}</p>`;
     return h;
   }).join("");
-  return section(anchor, title, body + `<p class="caption">Computed by FINN from Screener's standardised tables (${esc(d.lender ? "lender" : "company")} basis). Tap a number for its formula.</p>`);
+  return section(anchor, title, body + `<p class="caption">From reported tables. Tap a number for its formula.</p>`);
 }
 
 function bullBear(bb, counter) {
@@ -202,24 +202,28 @@ function docsList(d) {
     ${d.usage ? `<p class="caption">Models: ${esc(Object.keys(d.usage.by_model || {}).join(", ") || "none")} · ${d.usage.ok} calls · ~${crShort(d.usage.tokens)} tokens (free tier).</p>` : ""}`;
 }
 
-// ---------- ask ----------
-function askBlock({ sym, name, notes, asking, speechIn }) {
-  const list = notes.map((n) => {
+// ---------- ask: a conversation, oldest first, newest just above the ask bar ----------
+function askBlock({ sym, name, notes, asking, speechIn, listening }) {
+  const last = notes.length - 1;
+  const thread = notes.map((n, idx) => {
     const counter = newCounter();
-    return `<article class="note-card card" id="${esc(n.id)}"><p class="q">${esc(n.question)}</p>
-      ${n.pending ? `<div class="skeleton" aria-hidden="true"><span></span><span></span></div><p class="note" role="status">Reading ${esc(shortName(name))}'s documents…</p>`
-        : n.status !== "ok" ? `<p class="note">${esc(n.message || "No answer.")}</p>`
-        : `${claimList(n.claims, n.sources, counter)}${gapsLine(n.gaps)}${n.dropped ? `<p class="caption">${n.dropped} sentence${n.dropped > 1 ? "s" : ""} removed: not supported by the cited source.</p>` : ""}
-           ${n.follow_ups?.length ? `<div class="chips">${n.follow_ups.map((q) => `<button type="button" class="chip" data-rq="${esc(q)}">${esc(q)}</button>`).join("")}</div>` : ""}`}
-    </article>`;
+    let body;
+    if (n.pending) body = `<div class="skeleton" aria-hidden="true"><span></span><span></span></div><p class="note" role="status">Reading ${esc(shortName(name))}'s documents…</p>`;
+    else if (n.status === "ok") body = `${claimList(n.claims, n.sources, counter)}${gapsLine(n.gaps)}${n.dropped ? `<p class="caption">${n.dropped} sentence${n.dropped > 1 ? "s" : ""} removed: not supported by the cited source.</p>` : ""}`;
+    else body = `<p class="a-msg">${esc(n.message || "No answer.")}</p>`;
+    const chips = idx === last && !n.pending && n.follow_ups?.length
+      ? `<div class="chips follow">${n.follow_ups.map((q) => `<button type="button" class="chip" data-rq="${esc(q)}">${esc(q)}</button>`).join("")}</div>` : "";
+    return `<div class="turn" id="${esc(n.id)}"><p class="q-bubble"><span class="sr">You asked: </span>${esc(n.question)}</p>
+      <div class="a-body"><span class="a-by" aria-hidden="true">FINN</span>${body}</div>${chips}</div>`;
   }).join("");
-  return `<section class="r-sec" id="r-ask" aria-labelledby="rh-ask"><div class="sec-head"><h2 class="sec-title" id="rh-ask">Ask about ${esc(shortName(name))}</h2></div>
-    <div class="chips">${SUGGESTED.map((q) => `<button type="button" class="chip" data-rq="${esc(q)}">${esc(q)}</button>`).join("")}</div>
-    <div class="notes">${list}</div></section>
-    <form class="askbar" data-form="rask" role="search">
+  return `<section class="r-sec" id="r-ask" aria-labelledby="rh-ask"><div class="sec-head"><h2 class="sec-title" id="rh-ask">Ask about ${esc(shortName(name))}</h2>
+    ${notes.length ? `<button type="button" class="link" data-act="r-clear">Clear</button>` : ""}</div>
+    ${notes.length ? "" : `<div class="chips">${SUGGESTED.map((q) => `<button type="button" class="chip" data-rq="${esc(q)}">${esc(q)}</button>`).join("")}</div>`}
+    <div class="thread" aria-live="polite">${thread}</div></section>
+    <form class="askbar${listening ? " listening" : ""}" data-form="rask" role="search">
       <label class="sr" for="rask-q">Ask a question about ${esc(name)}</label>
-      <input id="rask-q" name="q" autocomplete="off" maxlength="300" placeholder="Ask ${esc(shortName(name))}'s filings…" ${asking ? "disabled" : ""}>
-      ${speechIn ? `<button type="button" class="icon-btn" data-act="mic" aria-label="Ask by voice">${MIC}</button>` : ""}
-      <button type="submit" class="icon-btn primary" aria-label="Ask" ${asking ? 'disabled aria-busy="true"' : ""}>${SEND}</button>
+      <input id="rask-q" name="q" autocomplete="off" maxlength="300" placeholder="${listening ? "Listening… speak now" : notes.length ? "Ask a follow-up…" : `Ask ${esc(shortName(name))}'s filings…`}">
+      ${speechIn ? `<button type="button" class="icon-btn" data-act="mic" aria-pressed="${!!listening}" aria-label="${listening ? "Stop listening" : "Speak your question"}">${MIC}</button>` : ""}
+      <button type="submit" class="icon-btn primary" aria-label="Send" ${asking ? 'disabled aria-busy="true"' : ""}>${SEND}</button>
     </form>`;
 }

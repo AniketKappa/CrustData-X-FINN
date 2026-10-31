@@ -103,30 +103,43 @@ function renderKeep() {
 async function askQuestion(sym, question) {
   question = question.trim();
   if (!question || LIVE.asking.has(sym)) return;
+  stopListening();
   const notes = LIVE.rnotes.get(sym) || [];
   // The same question again (a double tap, or a repeat) scrolls to the answer already on screen.
   const same = notes.find((n) => n.question.toLowerCase() === question.toLowerCase() && (n.pending || n.status === "ok"));
   if (same) { document.getElementById(same.id)?.scrollIntoView({ block: "start", behavior: "smooth" }); return; }
+  // Earlier answered turns go along as context, so "why?" or "and margins?" are understood.
+  const history = notes.filter((n) => !n.pending && n.status === "ok").slice(-3)
+    .map((n) => ({ question: n.question, answer: (n.claims || []).map((c) => c.text).join(" ").slice(0, 400) }));
   const id = `a${Date.now().toString(36)}`;
-  notes.unshift({ id, question, pending: true });
+  notes.push({ id, question, pending: true });
   LIVE.rnotes.set(sym, notes); LIVE.asking.add(sym);
   render();
   document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" });
   let a;
-  try { a = await askResearch(sym, question); } catch (e) { a = { status: "error", message: `Couldn't get an answer: ${e.message}` }; }
+  try { a = await askResearch(sym, question, history); } catch (e) { a = { status: "error", message: `Couldn't get an answer: ${e.message}` }; }
   Object.assign(notes.find((n) => n.id === id), a, { pending: false });
   LIVE.asking.delete(sym);
   render();
+  document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
+// Voice: words appear in the box as you speak; nothing is sent until you tap the arrow.
 function listen() {
   if (!SR) return;
-  const rec = new SR(); rec.lang = "en-IN"; rec.interimResults = false; rec.maxAlternatives = 1;
-  const btn = $('[data-act="mic"]'); if (btn) btn.setAttribute("aria-pressed", "true");
-  rec.onresult = (e) => { const q = e.results[0][0].transcript; const sym = currentResearch(); if (sym && q) askQuestion(sym, q); };
-  rec.onerror = (e) => showToast(e.error === "not-allowed" ? "Microphone access was blocked." : "Didn't catch that. Try again.");
-  rec.onend = () => { const b = $('[data-act="mic"]'); if (b) b.removeAttribute("aria-pressed"); };
+  if (S.rec) { stopListening(); return; }
+  const rec = new SR(); rec.lang = "en-IN"; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+  const input = $("#rask-q"), before = input?.value ? input.value.trim() + " " : "";
+  S.rec = rec; renderKeep();
+  rec.onresult = (e) => {
+    let text = "";
+    for (let k = 0; k < e.results.length; k++) text += e.results[k][0].transcript;
+    const box = $("#rask-q"); if (box) box.value = before + text;
+  };
+  rec.onerror = (e) => { if (e.error !== "aborted" && e.error !== "no-speech") showToast(e.error === "not-allowed" ? "Microphone access was blocked." : "Didn't catch that. Try again."); };
+  rec.onend = () => { if (S.rec === rec) { S.rec = null; renderKeep(); const box = $("#rask-q"); if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); } } };
   rec.start();
 }
+function stopListening() { if (S.rec) { const r = S.rec; S.rec = null; try { r.stop(); } catch { /* already stopped */ } } }
 
 function invalidate() { LIVE.digest = null; LIVE.holdings = null; LIVE.companies.clear(); }
 
@@ -135,10 +148,13 @@ function invalidate() { LIVE.digest = null; LIVE.holdings = null; LIVE.companies
 const FRESH_MS = 10 * 60e3;
 async function pollRefresh() {
   LIVE.refreshing = true; render();
-  for (let i = 0; i < 120; i++) {
-    await new Promise((r) => setTimeout(r, 3000));
+  let shownReady = false;
+  for (let i = 0; i < 200; i++) {
+    await new Promise((r) => setTimeout(r, i < 10 ? 1500 : 3000));
     let h;
     try { h = await getHealth(); } catch { break; }
+    // Stage 1 done (prices, filings, news): show the Briefing now; PDF reading and backgrounds keep going.
+    if (!shownReady && h.refresh?.stage === "ready") { shownReady = true; invalidate(); render(); }
     if (!h.refresh?.running) {
       if (h.refresh?.last_error) showToast(`Update finished with an error: ${h.refresh.last_error}`);
       break;
@@ -274,7 +290,7 @@ function render() {
     } else {
       const r = LIVE.research.get(sym);
       if (!r) loadResearch(sym);
-      html = researchDossier({ sym, d: r?.data, notes: LIVE.rnotes.get(sym) || [], asking: LIVE.asking.has(sym), speechIn: !!SR });
+      html = researchDossier({ sym, d: r?.data, notes: LIVE.rnotes.get(sym) || [], asking: LIVE.asking.has(sym), speechIn: !!SR, listening: !!S.rec });
       title = r?.data?.name ? `${r.data.name} research` : "Research";
     }
     title = title === "Briefing" ? "Research" : title;
@@ -406,6 +422,26 @@ function ask(q, symbol) {
 }
 const noteText = (n) => `${n.q}. Findings: ${n.answer.findings.map((f) => f.text).join(" ")} What it may mean: ${n.answer.implication} Uncertainty: ${n.answer.uncertainty}`;
 
+// Research section tabs follow the reader: the tab of the section at the top of the screen is selected.
+function markSection(id) {
+  document.querySelectorAll(".r-nav [data-jump]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.jump === id)));
+  document.querySelector(`.r-nav [data-jump="${id}"]`)?.scrollIntoView({ inline: "nearest", block: "nearest" });
+}
+let spyTick = 0;
+window.addEventListener("scroll", () => {
+  if (spyTick) return;
+  spyTick = requestAnimationFrame(() => {
+    spyTick = 0;
+    const tabs = [...document.querySelectorAll(".r-nav [data-jump]")];
+    if (!tabs.length) return;
+    const line = 160;
+    let cur = tabs[0].dataset.jump;
+    for (const t of tabs) { const el = document.getElementById(t.dataset.jump); if (el && el.getBoundingClientRect().top <= line) cur = t.dataset.jump; }
+    const now = document.querySelector('.r-nav [aria-pressed="true"]')?.dataset.jump;
+    if (now !== cur) markSection(cur);
+  });
+}, { passive: true });
+
 // ---------- events ----------
 // Ghost-tap guard: when a tap opens another screen, a second tap that follows within 350 ms would land on whatever
 // is now under the finger (often the bottom nav). Such taps are ignored. Only taps that navigate start the guard.
@@ -426,7 +462,7 @@ document.addEventListener("click", async (e) => {
   if (ds.window) { const { parts } = parse(); stopSpeech(); go(`#/briefing${parts[1] === "item" ? "/" + parts.slice(1).join("/") : ""}?w=${ds.window}`); return; }
   if (ds.filter) { S.filter = ds.filter; render(); return; }
   if (ds.more) { if (S.expanded.has(ds.more)) S.expanded.delete(ds.more); else S.expanded.add(ds.more); render(); return; }
-  if (ds.jump) { document.getElementById(ds.jump)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }); return; }
+  if (ds.jump) { markSection(ds.jump); document.getElementById(ds.jump)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }); return; }
   if (ds.rq) { const sym = currentResearch(); if (sym) askQuestion(sym, ds.rq); return; }
   if (ds.ptab) { S.ptab = ds.ptab; S.selected.clear(); render(); return; }
   if (ds.ask) { const sym = $("#rco").value; ask(RESEARCH[sym][+ds.ask].q, sym); return; }
@@ -440,7 +476,8 @@ document.addEventListener("click", async (e) => {
         if (dlg.open) { const b = document.getElementById("add-results"); if (b) b.innerHTML = addHtml(); }
         invalidate(); await loadHoldings();
         if (dlg.open) { const b = document.getElementById("add-results"); if (b) b.innerHTML = addHtml(); }
-        setTimeout(() => { invalidate(); render(); }, 20000);   // pick up the background fetch
+        if (r.refreshing) setTimeout(() => { invalidate(); render(); }, 15000);   // anything still loading
+        else { invalidate(); render(); }
       } catch (err) {
         showToast(`Couldn't add: ${err.message}`);
         document.querySelectorAll(`[data-add="${CSS.escape(ds.add)}"]`).forEach((b) => { b.disabled = false; });
@@ -464,6 +501,7 @@ document.addEventListener("click", async (e) => {
     case "close-dlg": dlg.close(); break;
     case "r-rebuild": { const sym = currentResearch(); if (sym) { LIVE.research.delete(sym); loadResearch(sym, true); } break; }
     case "mic": listen(); break;
+    case "r-clear": { const sym = currentResearch(); if (sym) { LIVE.rnotes.delete(sym); render(); } break; }
     case "select-stock": if (S.selected.has(ds.symbol)) S.selected.delete(ds.symbol); else S.selected.add(ds.symbol); render(); break;
     case "open-add": if (dlg.open) break; S.add = { q: "", results: null, note: null }; searchers["add-search"] = makeSearch(S.add, "add-results", addHtml);
 searchers["research-search"] = makeSearch(S.rsearch, "research-results", () => researchResults(S.rsearch.results, S.rsearch.note)); openDialog(addSheet(addRole(), "")); break;
@@ -521,14 +559,14 @@ document.addEventListener("change", (e) => { if (e.target.id === "rco") { stopSp
 document.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && e.target.id === "rq") { e.preventDefault(); e.target.form.requestSubmit(); }
 });
-window.addEventListener("hashchange", () => { if (S.speaking === "brief" && !location.hash.startsWith("#/briefing")) stopSpeech(); S.editing = false; S.selected.clear(); render(); });
+window.addEventListener("hashchange", () => { stopListening(); if (S.speaking === "brief" && !location.hash.startsWith("#/briefing")) stopSpeech(); S.editing = false; S.selected.clear(); render(); });
 
 async function boot() {
   const h = await detectApi();
   const banner = $("#banner");
   if (h) {
     LIVE.on = true; LIVE.mode = h.mode; LIVE.health = h;
-    if (h.mode === "live") { banner.className = "banner live"; banner.innerHTML = "Live data. Research uses only the company's own documents. Not investment advice."; }
+    if (h.mode === "live") { banner.hidden = true; }
     else banner.innerHTML = "<b>Demo mode.</b> The server is running on invented companies and data. Not investment advice.";
   }
   render();

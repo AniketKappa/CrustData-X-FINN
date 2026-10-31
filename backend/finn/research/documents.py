@@ -24,8 +24,10 @@ from ..http import FetchError, HttpClient, HttpPolicy
 MAX_PDF_BYTES = 45 * 1024 * 1024
 import os as _os
 # Business overview, MD&A and the key statements sit in the first part of a report. Small hosts (512 MB) can lower it.
-AR_MAX_PAGES = int(_os.environ.get("FINN_AR_MAX_PAGES", "180"))
-OTHER_MAX_PAGES = 80
+# The first ~60 pages hold the company overview, segments and chairman/MD letters; reading more costs time on a
+# small server for little extra signal in the business snapshot.
+AR_MAX_PAGES = int(_os.environ.get("FINN_AR_MAX_PAGES", "60"))
+OTHER_MAX_PAGES = 60
 _MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
 
 
@@ -86,10 +88,46 @@ def _doc(kind: str, title: str, period: str, url: str) -> Doc:
     return Doc(id=doc_id(url), kind=kind, title=title, period=period, url=url, host=urlparse(url).netloc)
 
 
-def pdf_pages(data: bytes, max_pages: int) -> tuple[list[str], int]:
-    """Text of each page (up to max_pages) and the document's total page count."""
-    from pypdf import PdfReader  # imported lazily; only research needs it
+import threading as _threading
 
+_PDFIUM_LOCK = _threading.Lock()      # pdfium is not thread-safe: downloads run in parallel, parsing one at a time
+
+
+def pdf_pages(data: bytes, max_pages: int) -> tuple[list[str], int]:
+    """Text of each page (up to max_pages) and the document's total page count. Uses pdfium (C, ~10x faster)
+    when installed, else pypdf (pure Python)."""
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        pdfium = None
+    if pdfium is not None:
+        with _PDFIUM_LOCK:
+            res = _pdfium_pages(pdfium, data, max_pages)
+        if res is not None:
+            return res
+    from pypdf import PdfReader  # imported lazily; only research needs it
+    return _pypdf_pages(PdfReader, data, max_pages)
+
+
+def _pdfium_pages(pdfium, data: bytes, max_pages: int):
+    try:
+        doc = pdfium.PdfDocument(data)
+        total, out = len(doc), []
+        for i in range(min(total, max_pages)):
+            page = doc[i]
+            tp = page.get_textpage()
+            try:
+                out.append(_clean(tp.get_text_range() or ""))
+            finally:
+                tp.close()
+                page.close()
+        doc.close()
+        return out, total
+    except Exception:  # noqa: BLE001 - fall back to pypdf
+        return None
+
+
+def _pypdf_pages(PdfReader, data: bytes, max_pages: int):
     reader = PdfReader(io.BytesIO(data))
     total = len(reader.pages)
     out = []
@@ -105,6 +143,7 @@ def pdf_pages(data: bytes, max_pages: int) -> tuple[list[str], int]:
 
 
 def _clean(t: str) -> str:
+    t = t.replace("\r\n", "\n").replace("\r", "\n")
     t = t.replace(" ", " ").replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
     t = re.sub(r"[ \t]+", " ", t)
     t = re.sub(r"\n{3,}", "\n\n", t)

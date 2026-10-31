@@ -40,6 +40,23 @@ class RefreshReport:
     merged_announcements: int = 0
 
 
+def fetch_parallel(calls: list, workers: int = 6) -> list:
+    """Run network calls concurrently; returns [(key, result or exception)] in the input order. Only the network
+    part runs in threads; callers write to the store from the main thread. Per-host spacing still applies (HttpClient)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def run(item):
+        key, call = item
+        try:
+            return key, call()
+        except Exception as e:  # noqa: BLE001 - returned to the caller, who classifies it
+            return key, e
+    if len(calls) <= 1:
+        return [run(c) for c in calls]
+    with ThreadPoolExecutor(max_workers=min(workers, len(calls))) as ex:
+        return list(ex.map(run, calls))
+
+
 class Pipeline:
     def __init__(self, settings: Settings, portfolio: Portfolio, store: Store, prices: PriceProvider,
                  nse_rss: Optional[NseRssSource] = None, nse_json: Optional[NseJsonSource] = None,
@@ -64,6 +81,7 @@ class Pipeline:
     def refresh_prices(self, symbols: list[str] | None = None, force: bool = False) -> RefreshReport:
         rep = RefreshReport()
         cfg = self.s.sources["prices"]
+        due = []
         for sym in symbols or self.tracked():
             try:
                 inst = normalize(sym)
@@ -77,19 +95,34 @@ class Pipeline:
             if not force and self.store.in_backoff("prices", inst.key, cfg["failure_backoff_minutes"], self.clock()):
                 rep.skipped_backoff.append(inst.key)
                 continue
-            try:
-                bars = self.prices.fetch(inst, cfg["history_days"])
-            except PriceProviderError as e:
-                self.store.log_fetch("prices", inst.key, False, f"{e.kind}: {e.detail}", at=self.clock())
-                rep.failed[inst.key] = e.kind
+            due.append(inst)
+        if not due:
+            return rep
+        if len(due) > 1 and getattr(self.prices, "name", "") == "yfinance":
+            from .providers.prices import fetch_many_yf
+            results = fetch_many_yf(self.prices, due, cfg["history_days"])     # one request for the whole list
+        else:
+            results = {}
+            for inst in due:
+                try:
+                    results[inst.key] = self.prices.fetch(inst, cfg["history_days"])
+                except PriceProviderError as e:
+                    results[inst.key] = e
+        for inst in due:
+            r = results.get(inst.key)
+            if isinstance(r, PriceProviderError) or r is None:
+                err = r or PriceProviderError("error", "no result")
+                self.store.log_fetch("prices", inst.key, False, f"{err.kind}: {err.detail}", at=self.clock())
+                rep.failed[inst.key] = err.kind
                 continue
-            self.store.upsert_bars(bars)
-            self.store.log_fetch("prices", inst.key, True, items=len(bars), at=self.clock())
+            self.store.upsert_bars(r)
+            self.store.log_fetch("prices", inst.key, True, items=len(r), at=self.clock())
             rep.fetched.append(inst.key)
         return rep
 
     # ------------------------------------------------------------ refresh: announcements
-    def refresh_announcements(self, force: bool = False, backfill: bool = True) -> RefreshReport:
+    def refresh_announcements(self, force: bool = False, backfill: bool = True,
+                              symbols: list[str] | None = None) -> RefreshReport:
         rep = RefreshReport()
         ttl = self.s.sources["announcements"]["cache_ttl_minutes"]
         backoff = self.s.sources["announcements"]["failure_backoff_minutes"]
@@ -105,7 +138,8 @@ class Pipeline:
                 continue
             self._run(src.name, key, lambda s=src: s.fetch(), rep)
         if self.bse_api is not None:
-            for sym in self.tracked():
+            due = []
+            for sym in (symbols or self.tracked()):
                 snap = self.snapshot(sym)
                 code = snap.bse_code if snap else None
                 if not code:
@@ -118,9 +152,9 @@ class Pipeline:
                 if not force and self.store.in_backoff("bse_api", sym, backoff, self.clock()):
                     rep.skipped_backoff.append(f"bse_api:{sym}")
                     continue
-                ok = self._run("bse_api", sym, lambda s=sym, c=code: self.bse_api.fetch_code(s, c), rep)
-                if ok == "schema":   # BSE changed shape or refused: stop calling it this run
-                    break
+                due.append((sym, lambda s=sym, c=code: self.bse_api.fetch_code(s, c)))
+            for sym, res in fetch_parallel(due):
+                self._run("bse_api", sym, (lambda r=res: _raise_or(r)), rep)
         if self.nse_json is not None and backfill:
             for sym in self.tracked():
                 if not force and self.store.is_fresh("nse_json", sym, ttl, self.clock()):
@@ -134,14 +168,27 @@ class Pipeline:
                     break
         return rep
 
-    def refresh_all(self, force: bool = False) -> dict:
-        """Prices, filings, news, then results numbers (which depend on the filings and news just fetched)."""
-        # Fundamentals first: their page gives each company's BSE code, which the filings fetch needs.
-        out = {"prices": self.refresh_prices(force=force), "companies": self.refresh_companies(force=force)}
-        out["announcements"] = self.refresh_announcements(force=force)
-        out["news"] = self.refresh_news(force=force)
+    def refresh_all(self, force: bool = False, on_stage: Optional[Callable[[str], None]] = None) -> dict:
+        """Two stages, so the Briefing appears fast.
+        Stage 1 (seconds): prices (one batched request), Screener pages, news and the NSE feed in parallel; then
+        each company's BSE filings in parallel (they need the BSE code from the Screener page). -> on_stage("ready")
+        Stage 2 (slower, model-bound): read results PDFs, one-line summaries, executive backgrounds."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        out: dict = {}
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            f_prices = ex.submit(self.refresh_prices, None, force)
+            f_news = ex.submit(self.refresh_news, force)
+            f_comp = ex.submit(self.refresh_companies, None, force)
+            out["companies"] = f_comp.result()
+            out["announcements"] = self.refresh_announcements(force=force)
+            out["prices"], out["news"] = f_prices.result(), f_news.result()
+        if on_stage:
+            on_stage("ready")
         out["filings"] = self.refresh_filings()
         out["people"] = self.refresh_people(force=force)
+        if on_stage:
+            on_stage("done")
         return {k: v.__dict__ for k, v in out.items()}
 
     # ------------------------------------------------------------ refresh: news (D-51)
@@ -153,6 +200,7 @@ class Pipeline:
         jobs = [(f"google:{c.symbol}", (lambda c=c: self.news.fetch_company(c)))
                 for c in self.portfolio.holdings + self.portfolio.research]
         jobs += [(f"feed:{f['name']}", (lambda f=f: self.news.fetch_publisher(f))) for f in cfg.get("publisher_feeds", [])]
+        due = []
         for key, call in jobs:
             if not force and self.store.is_fresh("news", key, cfg["cache_ttl_minutes"], self.clock()):
                 rep.skipped_fresh.append(key)
@@ -160,9 +208,12 @@ class Pipeline:
             if not force and self.store.in_backoff("news", key, cfg["failure_backoff_minutes"], self.clock()):
                 rep.skipped_backoff.append(key)
                 continue
-            try:
-                items = call()
-            except (SourceSchemaError, FetchError) as e:
+            due.append((key, call))
+        for key, items in fetch_parallel(due):
+            if isinstance(items, Exception):
+                e = items
+                if not isinstance(e, (SourceSchemaError, FetchError)):
+                    e = FetchError(key, "error", f"{e.__class__.__name__}: {e}")
                 self.store.log_fetch("news", key, False, f"{getattr(e, 'kind', 'schema')}: {getattr(e, 'detail', e)}",
                                      at=self.clock())
                 rep.failed[key] = getattr(e, "kind", "schema")
@@ -178,6 +229,7 @@ class Pipeline:
         if self.screener is None:
             return rep
         cfg = self.s.sources["screener"]
+        due = []
         for sym in symbols or self.tracked():
             # A record saved by an older version may be missing: then the TTL does not apply.
             if not force and self.store.get_company(sym) is not None and \
@@ -187,9 +239,10 @@ class Pipeline:
             if not force and self.store.in_backoff("screener", sym, cfg["failure_backoff_minutes"], self.clock()):
                 rep.skipped_backoff.append(sym)
                 continue
-            try:
-                snap = self.screener.fetch_company(sym)
-            except (SourceSchemaError, FetchError) as e:
+            due.append((sym, lambda s=sym: self.screener.fetch_company(s)))
+        for sym, snap in fetch_parallel(due):
+            if isinstance(snap, Exception):
+                e = snap
                 self.store.log_fetch("screener", sym, False, f"{getattr(e, 'kind', 'schema')}: {getattr(e, 'detail', e)}",
                                      at=self.clock())
                 rep.failed[sym] = getattr(e, "kind", "schema")
@@ -296,11 +349,17 @@ class Pipeline:
         return c
 
     def refresh_symbol(self, symbol: str) -> dict:
-        """Everything for one newly added company: prices, news, fundamentals (bypasses TTLs for that symbol)."""
-        out = {"prices": self.refresh_prices([symbol], force=True).__dict__}
+        """Everything for one newly added company, in parallel where possible (bypasses TTLs for that symbol):
+        prices + news + Screener at once, then its BSE filings (they need the BSE code from Screener)."""
+        from concurrent.futures import ThreadPoolExecutor
+
         c = self.portfolio.companies.get(symbol)
-        if self.news is not None and c is not None:
+        out: dict = {}
+
+        def news():
             rep = RefreshReport()
+            if self.news is None or c is None:
+                return rep
             try:
                 items = self.news.fetch_company(c)
                 rep.new_announcements = self.store.add_news(items)
@@ -309,8 +368,13 @@ class Pipeline:
             except (SourceSchemaError, FetchError) as e:
                 self.store.log_fetch("news", f"google:{symbol}", False, str(e), at=self.clock())
                 rep.failed[f"google:{symbol}"] = getattr(e, "kind", "schema")
-            out["news"] = rep.__dict__
-        out["companies"] = self.refresh_companies([symbol], force=True).__dict__
+            return rep
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            fp = ex.submit(self.refresh_prices, [symbol], True)
+            fn = ex.submit(news)
+            out["companies"] = self.refresh_companies([symbol], force=True).__dict__
+            out["announcements"] = self.refresh_announcements(force=True, backfill=False, symbols=[symbol]).__dict__
+            out["prices"], out["news"] = fp.result().__dict__, fn.result().__dict__
         return out
 
     # ------------------------------------------------------------ company page
@@ -664,6 +728,12 @@ def _plain_price_error(err: str) -> str:
         "unsupported": "This symbol is not in a supported NSE/BSE format.",
         "error": "The price provider failed (timeout, network or rate limit); no cached prices are available.",
     }.get(kind, f"Prices unavailable ({err}).")
+
+
+def _raise_or(r):
+    if isinstance(r, Exception):
+        raise r
+    return r
 
 
 def _subject_key(s: str) -> str:

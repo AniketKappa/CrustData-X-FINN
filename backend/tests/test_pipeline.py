@@ -138,3 +138,37 @@ def test_source_failure_is_disclosed_not_raised():
     p.refresh_announcements()
     d = p.digest()
     assert any("nse_rss" in x and ("failed" in x or "degraded" in x) for x in d.disclosures)
+
+
+def test_fetch_parallel_keeps_order_and_returns_errors():
+    import time
+    from finn.pipeline import fetch_parallel
+    calls = [(i, (lambda i=i: (time.sleep(0.05), i * 2)[1] if i != 3 else 1 / 0)) for i in range(6)]
+    t0 = time.monotonic()
+    out = fetch_parallel(calls, workers=6)
+    assert time.monotonic() - t0 < 0.2                              # ran concurrently, not 6 x 0.05 s
+    assert [k for k, _ in out] == list(range(6)) and out[2][1] == 4 and isinstance(out[3][1], ZeroDivisionError)
+
+
+def test_polite_spacing_holds_across_threads():
+    import threading
+    from finn.http import HttpClient, HttpPolicy
+    slept = []
+    clock = [0.0]
+    h = HttpClient(HttpPolicy(min_delay_seconds=0.5), sleep=lambda s: slept.append(round(s, 2)), clock=lambda: clock[0])
+    ts = [threading.Thread(target=h._polite_wait, args=("https://same.invalid/x",)) for _ in range(4)]
+    [t.start() for t in ts]; [t.join() for t in ts]                  # noqa: E702
+    assert sorted(slept) == [0.5, 1.0, 1.5]                          # one host: requests spaced, never bunched
+
+
+def test_batched_prices_split_per_symbol():
+    import pandas as pd
+    from finn.providers.prices import YFinanceProvider, fetch_many_yf
+    from finn.symbols import normalize
+    idx = pd.to_datetime(["2026-10-28", "2026-10-29"])
+    cols = pd.MultiIndex.from_product([["AAA.NS", "BBB.NS"], ["Open", "High", "Low", "Close", "Volume"]])
+    frame = pd.DataFrame([[1, 1, 1, 10, 100, 2, 2, 2, 20, 200], [1, 1, 1, 11, 110, 2, 2, 2, 21, 210]], index=idx, columns=cols)
+    prov = YFinanceProvider(fetch_frame=lambda *a: (_ for _ in ()).throw(RuntimeError("no data found")), retries=0)
+    out = fetch_many_yf(prov, [normalize("AAA"), normalize("BBB"), normalize("CCC")], 30, download=lambda *a: frame)
+    assert [b.close for b in out["NSE:AAA"]] == [10, 11] and [b.close for b in out["NSE:BBB"]] == [20, 21]
+    assert out["NSE:CCC"].kind == "no_data"                          # missing symbol -> its own error, others fine

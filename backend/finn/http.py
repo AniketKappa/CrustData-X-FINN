@@ -6,6 +6,7 @@ Tests inject an httpx.MockTransport and a fake sleep, so no test touches the net
 """
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -44,6 +45,7 @@ class HttpClient:
         self.policy = policy or HttpPolicy()
         self._sleep, self._clock = sleep, clock
         self._last_hit: dict[str, float] = {}
+        self._lock = threading.Lock()
         self._client = httpx.Client(
             timeout=self.policy.timeout_seconds,
             headers={"User-Agent": self.policy.user_agent, "Accept": "*/*"},
@@ -55,13 +57,16 @@ class HttpClient:
         self._client.close()
 
     def _polite_wait(self, url: str) -> None:
+        """Requests to one host are spaced by min_delay even when several threads fetch at once: each caller
+        reserves the next free slot for that host, then sleeps until it. Different hosts don't wait for each other."""
         host = urlparse(url).netloc
-        last = self._last_hit.get(host)
-        if last is not None:
-            wait = self.policy.min_delay_seconds - (self._clock() - last)
-            if wait > 0:
-                self._sleep(wait)
-        self._last_hit[host] = self._clock()
+        with self._lock:
+            now = self._clock()
+            last = self._last_hit.get(host)
+            slot = now if last is None else max(now, last + self.policy.min_delay_seconds)
+            self._last_hit[host] = slot
+        if slot > now:
+            self._sleep(slot - now)
 
     def get(self, url: str, headers: dict | None = None) -> httpx.Response:
         attempts = 1 + max(0, self.policy.max_retries)
