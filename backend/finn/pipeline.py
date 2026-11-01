@@ -338,7 +338,7 @@ class Pipeline:
             else:
                 last = self.store.last_fetch("screener", i.symbol)
                 i.results_status = ("Headline numbers unavailable: " + last["error"]) if last is not None and not last["ok"] \
-                    else ("Headline numbers not fetched yet; press Refresh." if self.screener else
+                    else ("Headline numbers not fetched yet; they will appear in a moment." if self.screener else
                           "Headline numbers need the Screener source, which is switched off.")
 
     # ------------------------------------------------------------ portfolio edits

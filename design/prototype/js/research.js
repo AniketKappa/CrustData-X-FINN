@@ -88,12 +88,13 @@ export function researchDossier({ sym, d, tab = "summary", notes, asking, speech
   if (!RTABS.some(([id]) => id === tab)) tab = "summary";
   const counter = newCounter();
   const S = d.sections || {};
-  const tabs = `<nav class="r-nav tabbar" aria-label="Research sections">${RTABS.map(([id, l]) =>
-    `<button type="button" class="chip" data-rtab="${id}" aria-pressed="${id === tab}">${l}${id === "ask" && notes.length ? ` <span class="n">${notes.length}</span>` : ""}</button>`).join("")}</nav>`;
+  const tabs = `<div class="tabwrap"><nav class="r-nav tabbar" aria-label="Research sections">${RTABS.filter(([id]) => id !== "ask").map(([id, l]) =>
+    `<button type="button" class="chip" data-rtab="${id}" aria-pressed="${id === tab}">${l}</button>`).join("")}</nav><button type="button" class="tab-more" aria-label="More tabs" tabindex="-1"><svg class="ic sm" viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5l5 5-5 5"/></svg></button></div>`;
   const label = RTABS.find(([id]) => id === tab)[1];
   let body = "";
   switch (tab) {
-    case "summary": body = summaryPanel(d, counter, running); break;
+    case "summary": body = summaryPanel(d, counter, running) + (notes.length ? "" : `<h3 class="r-h3">Ask</h3>
+      <div class="chips sugg">${SUGGESTED.map((q) => `<button type="button" class="chip" data-rq="${esc(q)}">${esc(q)}</button>`).join("")}</div>`); break;
     case "business": body = S.business ? claimList(S.business.claims, S.business.sources, counter) + gapsLine(S.business.gaps) + llmMsg(S.business, "business") : pendingOr(d, "business"); break;
     case "promises": body = ledger(d, counter); break;
     case "drivers": body = S.narrative ? claimList(S.narrative.claims, S.narrative.sources, counter) + gapsLine(S.narrative.gaps) + llmMsg(S.narrative, "narrative") : pendingOr(d, "narrative"); break;
@@ -103,8 +104,10 @@ export function researchDossier({ sym, d, tab = "summary", notes, asking, speech
     case "ask": body = askThread({ name, notes }); break;
     case "sources": body = docsList(d); break;
   }
-  return head + tabs + `<section class="r-panel" aria-label="${esc(label)}"><h2 class="r-title">${esc(label)}</h2>${body}</section>`
-    + askBar({ name, notes, asking, speechIn, listening });
+  const back = tab === "ask" ? `<button type="button" class="r-back" data-rtab="summary">← Back to the report</button>` : "";
+  const convo = tab !== "ask" && notes.length ? `<button type="button" class="convo-link" data-rtab="ask">Your questions (${notes.length}) →</button>` : "";
+  return head + tabs + `<section class="r-panel" aria-label="${esc(label)}">${back}<h2 class="r-title">${esc(tab === "ask" ? "Your questions" : label)}</h2>${body}</section>`
+    + convo + askBar({ name, notes, asking, speechIn, listening });
 }
 
 function summaryPanel(d, counter, running) {

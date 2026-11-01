@@ -83,7 +83,9 @@ const B = process.env.BASE || 'http://localhost:8800/';
   await t.goto(B + '#/briefing'); await t.waitForSelector('.bsec');
   const rb = t.locator('[data-act=refresh]');
   await Promise.all([rb.click({ force: true }), rb.click({ force: true }).catch(() => {}), rb.click({ force: true }).catch(() => {})]);
-  await t.waitForTimeout(1200);
+  let flashed = false;
+  for (let k = 0; k < 12; k++) { await t.waitForTimeout(250); if ((await t.textContent('main')).includes('Loading your briefing')) flashed = true; }
+  check('refresh keeps the briefing on screen (no loading flash)', !flashed && await t.locator('.bsec').count() > 0);
   check('triple-tap Refresh -> one request', posts.filter((p) => p === '/jobs/refresh').length === 1, JSON.stringify(posts));
   await t.dblclick('[data-act=menu]');
   await t.waitForTimeout(300);
@@ -138,9 +140,9 @@ const B = process.env.BASE || 'http://localhost:8800/';
       await r.click('.dlg-close');
     }
   }
-  check('each tab shows a panel with the same heading', matched === tabs.length && tabs.length === 9, `${matched}/${tabs.length}`);
+  check('each tab shows a panel with the same heading', matched === tabs.length && tabs.length === 8, `${matched}/${tabs.length}`);
   check('one panel at a time', await r.locator('.r-panel').count() === 1);
-  await r.click('.r-nav [data-rtab="ask"]'); await r.waitForTimeout(200);
+  await r.click('.r-nav [data-rtab="summary"]'); await r.waitForTimeout(200);
   const sug = r.locator('.chips.sugg .chip').first();
   await sug.click(); await sug.click({ force: true, timeout: 300 }).catch(() => {});
   await r.waitForSelector('.turn .claims li', { timeout: 15000 });
@@ -148,7 +150,7 @@ const B = process.env.BASE || 'http://localhost:8800/';
   await r.click('.r-nav [data-rtab="numbers"]'); await r.waitForTimeout(200);
   await r.fill('#rask-q', 'What are the risks?'); await r.press('#rask-q', 'Enter');
   await r.waitForFunction(() => document.querySelectorAll('.turn').length === 2 && !document.querySelector('.turn .skeleton'), null, { timeout: 15000 });
-  check('asking from another tab opens Ask', (await r.textContent('.r-title')).trim() === 'Ask');
+  check('asking from another tab opens the conversation', (await r.textContent('.r-title')).trim() === 'Your questions');
   check('typed question answered', rposts.filter((p) => p.endsWith('/ask')).length === 2);
   const order = await r.$$eval('.turn .q-bubble', (els) => els.map((e) => e.textContent.replace('You asked: ', '').trim()));
   check('conversation reads oldest -> newest', order.length === 2 && order[1] === 'What are the risks?', JSON.stringify(order));
@@ -158,6 +160,12 @@ const B = process.env.BASE || 'http://localhost:8800/';
   check('greeting gets a polite redirect, no company facts', hiTxt.includes('Try one of these') && !(await r.locator('.turn:last-child .claims li').count()));
   check('follow-up chips only under the latest answer', await r.locator('.turn:not(:last-child) .chips.follow').count() === 0);
   await r.screenshot({ path: `${OUT}/v3-m-research-ask.png` });
+  // the conversation stays put while the page re-renders, and the tab bar keeps its scroll position
+  await r.click('.r-back'); await r.waitForTimeout(200);
+  await r.evaluate(() => { const b = document.querySelector('.r-nav'); b.scrollLeft = 200; });
+  await r.click('.convo-link'); await r.waitForTimeout(3500);
+  check('conversation view stays open (no jump back)', (await r.textContent('.r-title')).trim() === 'Your questions');
+  check('ask is not a tab', await r.locator('.r-nav [data-rtab="ask"]').count() === 0);
   const rw = await r.evaluate(() => document.documentElement.scrollWidth); check('research no horizontal overflow', rw <= 390, rw);
   check('research start requested once', rposts.filter((p) => p.endsWith('/start')).length === 1, JSON.stringify(rposts));
   await d.goto(B + '#/research?c=FXCABLES&s=promises'); await d.waitForSelector('.ledger .lr'); await d.waitForTimeout(400);

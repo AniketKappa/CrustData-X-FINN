@@ -56,15 +56,18 @@ async function loadDigest() {
   const key = thKey();
   try {
     LIVE.digest = adaptDigest(await getDigest(S.settings), CATEGORY_LABEL);
-    LIVE.digestKey = key;
-  } catch (e) { LIVE.error = e.message; }
+    LIVE.digestKey = key; LIVE.stale = false;
+  } catch (e) {
+    if (LIVE.digest) { LIVE.stale = false; showToast(`Couldn't update the briefing: ${e.message}`); }   // keep what's shown
+    else LIVE.error = e.message;
+  }
   LIVE.loading = false;
   render();
 }
 async function loadHoldings() {
   if (LIVE.holdingsLoading) return;
   LIVE.holdingsLoading = true;
-  try { LIVE.holdings = await getHoldings(S.settings); } catch (e) { showToast(`Couldn't load your stocks: ${e.message}`); }
+  try { LIVE.holdings = await getHoldings(S.settings); LIVE.holdingsStale = false; } catch (e) { showToast(`Couldn't load your stocks: ${e.message}`); }
   LIVE.holdingsLoading = false;
   render();
 }
@@ -142,7 +145,9 @@ function listen() {
 }
 function stopListening() { if (S.rec) { const r = S.rec; S.rec = null; try { r.stop(); } catch { /* already stopped */ } } }
 
-function invalidate() { LIVE.digest = null; LIVE.holdings = null; LIVE.companies.clear(); }
+// Data on screen stays on screen while newer data loads (no "Loading…" flash): invalidate only marks it stale,
+// and the next render fetches fresh data in the background and swaps it in when it arrives.
+function invalidate() { LIVE.stale = true; LIVE.holdingsStale = true; LIVE.companies.forEach((c) => { c.at = 0; }); }
 
 // Fresh data on open: the app asks the server to fetch (respecting its short caches), shows what it has
 // meanwhile, and reloads when the fetch finishes.
@@ -229,7 +234,9 @@ function render() {
 
   if (top === "briefing") {
     const windowId = WINDOWS.some((w) => w.id === params.get("w")) ? params.get("w") : "24h";
-    if (LIVE.on && (!LIVE.digest || LIVE.digestKey !== thKey())) {
+    if (LIVE.on && LIVE.digest && (LIVE.stale || LIVE.digestKey !== thKey()) && !LIVE.loading) loadDigest();
+    if (LIVE.on && LIVE.holdingsStale && LIVE.holdings && !LIVE.holdingsLoading) loadHoldings();
+    if (LIVE.on && !LIVE.digest) {
       if (!LIVE.loading && !LIVE.error) loadDigest();
       if (!LIVE.holdings && !LIVE.holdingsLoading) loadHoldings();
       main.innerHTML = LIVE.error && !LIVE.loading
@@ -251,6 +258,7 @@ function render() {
     if (selId && !sel) html = `<div class="card empty-card">That update is no longer in your briefing. <a href="#/briefing">Back</a></div>`;
     title = sel ? sel.title : "Briefing";
   } else if (top === "portfolio") {
+    if (LIVE.on && LIVE.holdingsStale && LIVE.holdings && !LIVE.holdingsLoading) loadHoldings();
     if (LIVE.on && !LIVE.holdings) {
       if (!LIVE.holdingsLoading) loadHoldings();
       html = `<div class="card empty-card" role="status">Loading your stocks…</div>`;
@@ -303,7 +311,21 @@ function render() {
     title = "Research";
   }
 
+  // Re-rendering must not jump the tab bars back to their start (it looked like the tab had changed).
+  const tabScroll = Object.fromEntries([...main.querySelectorAll(".tabbar")].map((el) => [el.getAttribute("aria-label"),
+    [el.scrollLeft, el.querySelector('[aria-pressed="true"]')?.textContent]]));
   main.innerHTML = html;
+  main.querySelectorAll(".tabbar").forEach((el) => {
+    const prev = tabScroll[el.getAttribute("aria-label")];
+    if (prev) el.scrollLeft = prev[0];
+    const on = el.querySelector('[aria-pressed="true"]');
+    if (on && (!prev || prev[1] !== on.textContent)) {     // a newly selected tab is brought into view
+      const l = on.offsetLeft - el.offsetLeft, r = l + on.offsetWidth;
+      if (l < el.scrollLeft) el.scrollLeft = l - 16;
+      else if (r > el.scrollLeft + el.clientWidth) el.scrollLeft = r - el.clientWidth + 48;
+    }
+    updateTabMore(el);
+  });
   document.title = `${title} · FINN`;
   setNav(navTop);
   drawCharts();
@@ -424,6 +446,14 @@ function ask(q, symbol) {
 }
 const noteText = (n) => `${n.q}. Findings: ${n.answer.findings.map((f) => f.text).join(" ")} What it may mean: ${n.answer.implication} Uncertainty: ${n.answer.uncertainty}`;
 
+// Tab bars that scroll sideways show an arrow while more tabs are hidden on the right.
+function updateTabMore(el) {
+  const wrap = el.closest(".tabwrap");
+  if (wrap) wrap.classList.toggle("has-more", el.scrollWidth - el.scrollLeft - el.clientWidth > 6);
+}
+document.addEventListener("scroll", (e) => { if (e.target.classList?.contains("tabbar")) updateTabMore(e.target); }, true);
+window.addEventListener("resize", () => main.querySelectorAll(".tabbar").forEach(updateTabMore));
+
 // ---------- events ----------
 // Ghost-tap guard: when a tap opens another screen, a second tap that follows within 350 ms would land on whatever
 // is now under the finger (often the bottom nav). Such taps are ignored. Only taps that navigate start the guard.
@@ -444,6 +474,7 @@ document.addEventListener("click", async (e) => {
   if (ds.window) { const { parts } = parse(); stopSpeech(); go(`#/briefing${parts[1] === "item" ? "/" + parts.slice(1).join("/") : ""}?w=${ds.window}`); return; }
   if (ds.filter) { S.filter = ds.filter; render(); return; }
   if (ds.more) { if (S.expanded.has(ds.more)) S.expanded.delete(ds.more); else S.expanded.add(ds.more); render(); return; }
+  if (t.classList.contains("tab-more")) { const bar = t.parentElement.querySelector(".tabbar"); bar?.scrollBy({ left: bar.clientWidth * 0.7, behavior: "smooth" }); return; }
   if (ds.rtab) { const sym = currentResearch(); if (sym) go(`#/research?c=${encodeURIComponent(sym)}&s=${ds.rtab}`); return; }
   if (ds.rq) { const sym = currentResearch(); if (sym) askQuestion(sym, ds.rq); return; }
   if (ds.ptab) { S.ptab = ds.ptab; S.selected.clear(); render(); return; }
@@ -528,7 +559,7 @@ document.addEventListener("submit", (e) => {
     S.settings = { price_pct: +fd.get("price_pct"), vol_mult: +fd.get("vol_mult"),
       categories: Object.fromEntries(Object.keys(DEFAULT_SETTINGS.categories).map((k) => [k, on.has(k)])) };
     store.set("settings", S.settings);
-    dlg.close(); LIVE.holdings = null; render();
+    dlg.close(); LIVE.holdingsStale = true; LIVE.stale = true; render();
   } else if (f.dataset.form === "rask") {
     e.preventDefault();
     const sym = currentResearch(), q = String(new FormData(f).get("q") || "");

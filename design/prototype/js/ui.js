@@ -91,7 +91,7 @@ export function briefingV3({ movers = [], sessions = 1, sections, routine, hidde
     ${live?.message ? `<p class="note" role="status" style="margin-top:8px">${esc(live.message)}</p>` : ""}
   </section>
   <div class="toolbar brief"><div class="seg" role="group" aria-label="Time window">${seg}</div></div>
-  <nav class="tabbar" role="group" aria-label="Show">${chips}</nav>
+  <div class="tabwrap"><nav class="tabbar" role="group" aria-label="Show">${chips}</nav><button type="button" class="tab-more" aria-label="More tabs" tabindex="-1"><svg class="ic sm" viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5l5 5-5 5"/></svg></button></div>
   ${filter === "all" && movers.length ? `<section class="bsec" aria-labelledby="h-movers">
     <div class="sec-head"><h2 class="sec-title" id="h-movers">Biggest moves</h2><span class="sec-sub">${sessions === 1 ? (movers.some((m) => m.live) ? "today so far" : "last session") : `last ${sessions} sessions`}</span></div>
     <div class="movers">${movers.map((m) => `<a class="mover" href="#/company/${encodeURIComponent(m.symbol)}/overview"><span class="tk">${esc(m.symbol)}</span><span class="nm">${esc(shortName(m.name))}</span>${pctPill(m.chg)}</a>`).join("")}</div></section>` : ""}
