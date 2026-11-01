@@ -1,134 +1,153 @@
----
-title: FINN
-emoji: 📈
-colorFrom: blue
-colorTo: gray
-sdk: docker
-app_port: 7860
-pinned: false
-short_description: Mobile-first investment intelligence for NSE portfolios
----
-
 # FINN — Financial Investment Agent
 
-A mobile-first investment intelligence agent for Indian equities (NSE/BSE), built for the ENAM Holdings AI Engineer Build Challenge (deadline **1 Nov 2026**).
+A phone-first app that tells an investor what changed in their portfolio today, and lets them dig into any NSE company using only the company's own documents. Built for the ENAM Holdings AI Engineer Build Challenge (Nov 2026).
 
-- **Push**: tells you what changed across your portfolio and why it matters, through a prioritised digest and configurable alerts.
-- **Pull**: on-demand research on any NSE company, grounded only in primary sources (annual reports, concall transcripts, filings), with every claim cited.
+**Live app:** [your Render link] · open it on a phone and use "Add to Home Screen"
+**AI build history:** [link to chat exports]
 
-## Status
-- **Phase 0 (planning) is complete.** Design prototype v2 (`design/prototype/`) works on labelled fixture data.
-- **Push data pipeline (backend) is implemented and tested offline:** prices and volume, announcements, classification, ranking, digest, API and CLI. **125 tests pass.** No live source has been verified yet; see "Live integrations" below.
-- **The app runs end to end for Push:** the backend serves the web app at http://localhost:8000 and the Briefing reads `/v1/digest` (live data). Companies and Research still run on fixture data.
-- Not built yet: Pull research (company pages from filings, Q&A), LLM features, the Next.js rebuild and deployment. See [`docs/PROGRESS.md`](docs/PROGRESS.md).
+---
 
-## Planned MVP
-- Ranked daily brief with a window selector (24h default) and routine filings collapsed
-- Alerts for price moves, volume spikes and material announcement types, with user-set thresholds
-- Results card: Revenue, EBITDA (derived), PBT, PAT, QoQ and YoY, taken from the filing
-- Management-change card with the appointee's profile from the filing
-- Research dossier with a **Promises Ledger**: management's guidance vs what was delivered, last 4 quarters, every cell cited
+## What it does
 
-Full scope, including what's out: [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md).
+**Briefing (Push).** Everything that happened across your portfolio in the last 24 hours, 3 days or 7 days, sorted by what matters:
 
-## Docs
-| Doc | Purpose |
-|---|---|
-| [CLAUDE.md](CLAUDE.md) | Rules for AI coding agents on this repo |
-| [REQUIREMENTS](docs/REQUIREMENTS.md) | Requirements extracted from the brief, labelled mandatory / signal / optional / innovation / assumption |
-| [PRODUCT_SPEC](docs/PRODUCT_SPEC.md) | Point of view, MVP scope, screens, demo companies |
-| [ARCHITECTURE](docs/ARCHITECTURE.md) | System design, pipelines, data model, LLM routing |
-| [IMPLEMENTATION_PLAN](docs/IMPLEMENTATION_PLAN.md) | Backward schedule, phases, prioritised tasks, cut lines |
-| [RESEARCH](docs/RESEARCH.md) | Data-source findings and what still needs verifying |
-| [DECISIONS](docs/DECISIONS.md) | Decision log |
-| [EVALUATION](docs/EVALUATION.md) | Quality gates and requirement → test traceability |
-| [PROGRESS](docs/PROGRESS.md) | What's actually done and verified |
+- **Market moves**: price or volume beyond the thresholds *you* set (default ±5% and 2× the 20-day average volume), including today's move while the market is open.
+- **Results**: Revenue, EBITDA, PBT and PAT, QoQ and YoY, read from the actual results filing and cross-checked against Screener.
+- **Management changes**: who is coming in, who is leaving, and a short, sourced background of the new person.
+- **Deals, legal, ratings and other material filings**: one-line summaries written from the filed PDF.
+- **Routine paperwork** is folded away. **Listen** reads the briefing aloud, starting with market moves.
 
-## Run the app
-One command starts the API and the web app together:
-```powershell
-cd "C:\Enam Holding\backend"
-python -m pip install -r requirements.txt     # first time only
-python -m uvicorn finn.api:app --port 8000
+**Research (Pull).** Works for **any NSE company**, not just the demo list. FINN reads the company's last four call transcripts, latest investor presentation and annual report, and builds a report in tabs: Summary, Business, Promises, Drivers, Numbers, Cash & debt, Bull & bear, Sources.
+
+- **Promises** is the centrepiece: guidance from each call (e.g. "12–14% revenue growth in FY27"), checked in code against the quarters reported afterwards → Beat / Delivered / On track / Behind / Missed / Too early.
+- **Every sentence is cited.** Tap the `[1]` to see the exact passage and page, with a link to the PDF.
+- **Ask** anything by typing or by voice. Follow-ups ("why?") understand the previous question; small talk and off-topic questions get a polite redirect instead of made-up answers.
+
+**Portfolio.** Search any NSE/BSE stock to open its page (price, results, ratios, news, filings, documents). **Edit** has two buttons: Add and Delete. The briefing updates within seconds.
+
+## How it works
+
+```mermaid
+flowchart LR
+  Phone["Phone (web app)"] <--> Server["FINN server (Python, FastAPI)"]
+  Server --> Y[Yahoo Finance<br/>prices]
+  Server --> S[Screener<br/>tables + document links]
+  Server --> B[BSE / NSE<br/>filings + PDFs]
+  Server --> N[Google News, ET<br/>headlines]
+  Server --> D[Company PDFs<br/>transcripts, reports]
+  Server --> L[Groq / OpenRouter<br/>free LLMs]
+  Server --> T[Tavily, Wikipedia<br/>executive backgrounds]
 ```
-Open **http://localhost:8000**. On start-up the server fetches live prices and NSE filings in the background (about a minute); the Briefing shows a status line until that finishes. **Refresh** in the Briefing fetches again (cached sources are skipped). The phone layout is in Chrome DevTools (F12, then Ctrl+Shift+M); from a phone on the same Wi-Fi, run uvicorn with `--host 0.0.0.0` and open `http://<your-PC-IP>:8000`.
 
-The app has three tabs: **Briefing**, **Portfolio** (search to add any NSE/BSE stock, Edit to remove; saved in `data/portfolio.json`) and **Research** (prepared examples until Pull is built). Tap any company to open its page: price chart, latest results, key ratios, news, exchange filings, annual reports and concall transcripts.
+1. **Fetch (stage 1, seconds):** prices for all stocks in one request; Screener pages, BSE filings and news in parallel (each website limited to ~3 requests a second). The briefing appears as soon as this is done.
+2. **Read (stage 2, background):** results PDFs, one-line filing summaries and executive backgrounds fill in without blocking the screen.
+3. **Research:** numbers are computed first (shown in seconds), PDFs are downloaded in parallel and read page by page, the most relevant passages are found with keyword search (BM25), and the LLM writes each section from those passages only.
+4. **Check:** every LLM sentence must cite a source it was given, and every number in it must appear in that source. Anything else is deleted before it reaches the screen.
 
-What is live: **the Briefing**, in the brief's sections: Market moves (Yahoo end-of-day price/volume against your thresholds), Results (with Revenue / EBITDA / PBT / PAT, QoQ and YoY from Screener), Management changes, Deals, Legal & regulatory and Other updates, each mixing NSE filings and trusted news headlines (labelled), with routine filings collapsed, Done/Snooze, data notes and a spoken briefing. What is still demo: **Research** answers (prepared examples). For demo data everywhere, set `$env:FINN_DATA_MODE="fixture"` first.
+The server refreshes every 10 minutes while it is awake. Data is kept in a local SQLite cache.
 
-## Setup (backend)
-Requires Python 3.10+.
+## Data sources (all free)
+
+| Source | Used for | Notes |
+|---|---|---|
+| Yahoo Finance (yfinance) | Daily and in-session prices, volume | In-session prices can lag ~15 min |
+| BSE announcements (bseindia.com's own JSON) | Every filing per company, with its PDF | Undocumented endpoint; schema-checked; FINN stops if it changes |
+| NSE RSS feed | Recent filings | NSE's per-company JSON returns 403 and is not worked around |
+| Screener.in | Financial tables, BSE codes, links to transcripts and reports | Numbers only, always labelled |
+| Company PDFs (BSE / company websites) | Research text, results numbers, filing summaries | Primary documents only |
+| Google News RSS, Economic Times RSS | Headlines from trusted outlets | Labelled as news; never used in Research |
+| Tavily, Wikipedia | Background of incoming executives | Push only, as the brief allows |
+| Groq, OpenRouter | LLM writing and extraction | Free tiers |
+
+## Key decisions and trade-offs
+
+- **The LLM never does arithmetic.** It copies or writes; code calculates every number (growth, margins, debt-to-equity, cash ÷ profit, QoQ/YoY, promise verdicts). Slower to build, but nothing invented reaches the screen.
+- **Research uses only primary sources**, as the brief asks: no news, no broker notes, no model background knowledge. The prompts say so and a validator enforces it.
+- **Free tiers only.** Small jobs (guidance extraction, filing summaries, results numbers) go to smaller models; reasoning goes to larger ones. Calls are paced to each model's per-minute limit, cached, and retried once if a limit is hit. *Trade-off:* Render's free server sleeps after 15 idle minutes, so the first open after a quiet spell is slower.
+- **Keyword search, not a vector database.** Free, fast, deterministic and strong on exact terms like "EBITDA" or "FY27". *Trade-off:* it can miss synonyms.
+- **Two-stage refresh.** The briefing shows as soon as prices, filings and news are in; PDF reading continues in the background.
+- **One web app instead of native apps.** Works on any phone, installs to the home screen, and the backend serves it, so there is one thing to deploy.
+
+## Deliberately left out
+
+- **LinkedIn scraping:** against LinkedIn's terms. Filings, web search and Wikipedia cover backgrounds.
+- **Anything behind a login, CAPTCHA or block:** NSE's JSON returns 403 and FINN doesn't work around it.
+- **User accounts and multi-user portfolios:** one shared demo portfolio.
+- **Push notifications to the phone:** alerts show in the app.
+- **OCR for scanned PDFs:** scanned filings show their subject and link only.
+
+## Where I'd take it next
+
+1. Phone notifications when an alert fires.
+2. A database that survives restarts, so history and research persist.
+3. OCR for scanned filings.
+4. Guidance tracking over several years, and peer comparison.
+5. Per-user portfolios and settings.
+
+## Run it locally
+
+Python 3.10+.
+
 ```bash
 cd backend
-python -m venv .venv
-.venv\Scripts\activate            # Windows  (macOS/Linux: source .venv/bin/activate)
 pip install -r requirements.txt
-python -m pytest                   # 125 offline tests, no network
-python -m finn digest --fixture    # demo digest on fictitious companies, no network
-python -m finn check-live          # one real call per source; run on a machine with internet access
-python -m finn refresh             # live fetch into data/finn.db (cached; respects TTLs)
-python -m finn digest --window 24  # 24 | 72 | 168 hours; --price-pct 4 --vol-mult 2.5 to override alerts
-uvicorn finn.api:app --reload      # API: /health, /v1/digest, /v1/market, /v1/sources, POST /jobs/refresh
+python -m uvicorn finn.api:app --port 8000
 ```
-Set `FINN_DATA_MODE=fixture` to run the API on fixtures. Copy `.env.example` to `.env` for settings; never commit `.env`.
 
-### Backend layout
-| Path | What it does |
-|---|---|
-| `backend/config/portfolio.yaml` | Demo portfolio: 18 holdings across 15 sectors and three sizes, plus 4 research companies. Demo choices only; any NSE symbol or BSE code works |
-| `backend/config/alerts.yaml` | Price % and volume-multiple thresholds, lookback, minimum history, staleness |
-| `backend/config/ranking.yaml` | Materiality per category, weights, recency half-life, tier cut-offs, window options |
-| `backend/config/sources.yaml` | Source URLs, enable flags, verification status, timeouts, retries, TTLs |
-| `finn/symbols.py` | NSE/BSE ticker normalisation (`INFY`, `INFY.NS`, `NSE:INFY`, `500209`, `500209.BO`, `BSE:500209`) |
-| `finn/providers/prices.py` | yfinance adapter and deterministic fixture provider |
-| `finn/providers/announcements.py` | NSE RSS, NSE JSON (undocumented, backfill), BSE RSS parsers and fetchers; dedup key |
-| `finn/market.py` | Daily % change, volume vs N-session average, staleness, alerts |
-| `finn/classify.py` | Rule classifier over the 17 REF categories, reading subject and attachment text |
-| `finn/rank.py` | Explainable score and tiers |
-| `finn/pipeline.py` | Refresh (network, cached) and digest (store only) |
-| `finn/store.py` | SQLite cache of bars, announcements and the fetch log |
-| `finn/api.py`, `finn/__main__.py` | FastAPI app and CLI |
+Open http://localhost:8000. For the phone view use Chrome DevTools (F12 → Ctrl+Shift+M).
 
-## Live integrations
-Checked with `python -m finn check-live` on the owner's PC, 30 Oct 2026 05:20 IST. The build environments themselves can't reach these sites (proxy 403). Run `python -m finn inspect-rss` to see how FINN reads every item in the current RSS feed.
+**Keys (all free):** copy `.env.example` to `.env` in the repo root and fill in what you have. `.env` is git-ignored; never commit it.
 
-| Integration | State in code | What's unverified |
+| Key | Where to get it | Turns on |
 |---|---|---|
-| yfinance EOD prices (`.NS` / `.BO`) | **Verified working** (INFY.NS, 9 bars) | The latest bar was 28 Oct when 29 Oct was expected, so Yahoo may lag a day. Rate limits, BSE `.BO` coverage and the full portfolio are untested |
-| NSE RSS `Online_announcements.xml` | **Verified working** (5 items parsed at 05:20) | No portfolio company was in the feed, so name→symbol mapping is unproven. Rolling-window length at busy times is unmeasured |
-| NSE corporate-announcements JSON (undocumented) | **Blocked: HTTP 403**, now disabled (D-49) | Not worked around. No backfill source remains |
-| BSE RSS | Parser implemented, **disabled** | Feed URL and item layout (Spike S1) |
-| News headlines: Google News RSS search, ET and Moneycontrol RSS (D-51) | Implemented, enabled | Not yet fetched by FINN. The Moneycontrol feed URL is from memory; Google News may rate-limit 22 queries per refresh (cached 60 min) |
-| screener.in Quarterly Results (D-52) | Implemented, enabled (results items only) | Not yet fetched by FINN; the table layout is assumed from Screener's public page and checked by schema |
-| LinkedIn profiles | **Not used** | LinkedIn's terms forbid scraping (D-51) |
-| NSE UDiFF bhavcopy (price fallback) | **Not implemented** | — |
-| Exchange holiday calendar | **Not implemented** | Holidays may show as stale prices |
-| LLM classification fallback, results extraction, Tavily, Gemini/Groq | **Not implemented** | Keys and free-tier access (S6) |
-| BSE scrip codes in the portfolio | From memory | Spike S5 |
-| Render / Vercel deployment, keep-alive, GitHub Actions poller | **Not implemented** | — |
+| `GROQ_API_KEY` | console.groq.com → API Keys | Research writing, results numbers, summaries, bios |
+| `OPENROUTER_API_KEY` | openrouter.ai → Keys | Backup LLM when Groq is busy |
+| `TAVILY_API_KEY` | app.tavily.com | Web search for executive backgrounds |
 
-## Free services used (no paid APIs)
-Gemini API (free tier) · Groq (free tier) · Tavily (free plan) · Vercel (Hobby) · Render (free web service) · GitHub Actions. Details and limits: [RESEARCH R10–R12](docs/RESEARCH.md).
+Without keys, prices, filings, news, numbers and the document list still work; the written sections say they need a key.
 
-## Decisions confirmed by the owner
-See [REQUIREMENTS §8](docs/REQUIREMENTS.md). In short: Gemini + Groq free tiers; Vercel + Render; live data for any NSE ticker by default; filing bios plus a Tavily web search; table source pending D-35; the Ask box, swipe triage and voice briefing are in; Bull vs Bear is out; the design brief is understated premium.
+**Useful commands**
 
-## How data is stored
-The server keeps **no durable state**: Render's free tier wipes local files on every spin-down, restart or redeploy. The portfolio and defaults are committed config. Your threshold changes, read/unread state and swipe triage are saved **in your browser on that device**. Market data and filings are re-fetched on boot from a committed seed. Details: [ARCHITECTURE §4b](docs/ARCHITECTURE.md).
+```bash
+python -m pytest                     # 187 offline tests (no network)
+python -m finn check-live            # one real call per data source
+python -m finn check-llm             # checks each configured model and key
+python -m finn research ASTRAL       # builds a research report in the terminal
+FINN_DATA_MODE=fixture python -m uvicorn finn.api:app --port 8000   # demo mode: invented companies, no internet
+```
 
-## Source rules (planned)
-Research narrative cites primary documents only (annual reports, transcripts, filings). Where numbers come from is pending decision D-35 (tables derived from filings are recommended). Data is accessed only through official channels: exchange RSS feeds, downloadable files, company websites and documented APIs. No website scraping (D-32). Web search is used only for management-change backgrounds in Push, and is labelled. Details: [ARCHITECTURE §4a](docs/ARCHITECTURE.md).
+Browser checks (Playwright): `design/prototype/test/v3.cjs` (screens, multi-tap, research flows) and `test/buttons.cjs` (taps every button on every screen).
 
-## Decisions: status
-- **Approved:** D-31 (repo holds metadata, links, FINN-derived outputs and synthetic fixtures only); **D-38 (personal non-commercial project; all publicly accessible web sources allowed; guardrails: no login/CAPTCHA bypass, no signed-in sessions, polite rates, attribution)**; D-39–D-41 (frontend stack, design system, first vertical slice).
-- **Conditional on Phase-1 spikes:** D-33 announcements (NSE RSS + per-company JSON backfill, BSE fallback); D-34 documents (company websites, exchange attachments, screener links); D-36 prices (yfinance first, NSE bhavcopy fallback); D-37 GitHub-Actions metadata log is now optional.
-- **Unresolved (owner):** per-device settings (A-13) only. D-35 → screener tables (D-38); O1 → yes; Vercel Hobby fits (personal project).
+## Deploy (Render, free)
 
-Details: [DECISIONS](docs/DECISIONS.md), evidence in [RESEARCH R25–R27](docs/RESEARCH.md), checklist in [IMPLEMENTATION_PLAN Phase 1](docs/IMPLEMENTATION_PLAN.md).
+1. Push this repo to GitHub.
+2. On render.com: **New + → Blueprint**, pick the repo; it reads `render.yaml` and the `Dockerfile`.
+3. Paste `GROQ_API_KEY`, `OPENROUTER_API_KEY` and `TAVILY_API_KEY` when asked.
+4. Optional: point a free UptimeRobot monitor at `https://<your-app>.onrender.com/health` every 5 minutes so the server stays awake and fast.
 
-## Still open (technical)
-1. Real free quotas and model access on your keys (S6).
-2. RSS feed window length at peak times vs GitHub Actions schedule reliability (S1, S9).
-3. Alert timing: EOD price/volume checks plus ~10-min announcement polling as the reading of "the moment".
-4. Build-history export format for the submission.
+Every `git push` redeploys automatically.
+
+## Repository layout
+
+| Path | What it is |
+|---|---|
+| `backend/finn/api.py` | HTTP API; also serves the web app |
+| `backend/finn/pipeline.py` | Fetching (two stages, parallel) and the briefing |
+| `backend/finn/providers/` | Yahoo, BSE/NSE, Screener, news, search adapters |
+| `backend/finn/classify.py`, `rank.py`, `market.py` | Filing categories, ranking, price/volume alerts |
+| `backend/finn/filings.py` | Results numbers and one-line summaries from filed PDFs |
+| `backend/finn/people.py` | Incoming-executive backgrounds |
+| `backend/finn/research/` | Documents, retrieval, numbers, prompts and validator, promises ledger, research engine |
+| `backend/finn/llm.py` | Free-model routing, pacing, caching |
+| `backend/config/` | Portfolio (20 holdings + 4 research companies), alert thresholds, sources |
+| `backend/tests/` | Offline tests with invented "Fixture …" companies |
+| `design/prototype/` | The web app (HTML, CSS, JavaScript) and browser tests |
+| `docs/` | Requirements, product spec, architecture, decision log, progress |
+
+## Docs
+
+[Product spec](docs/PRODUCT_SPEC.md) · [Architecture](docs/ARCHITECTURE.md) · [Decisions](docs/DECISIONS.md) · [Progress](docs/PROGRESS.md) · [Requirements](docs/REQUIREMENTS.md) · [Research notes](docs/RESEARCH.md)
+
+---
+
+*Personal, non-commercial prototype. Not investment advice. Data belongs to its sources and is linked back to them.*
