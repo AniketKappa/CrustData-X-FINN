@@ -304,7 +304,8 @@ class DecisionService:
                        "confidence_note": obj["confidence_note"], "method": "llm"}
                 self._why[key] = res
                 return res
-        res = {**base, **fallback_explanation(sym, inp["pct"], inp["vm"]), "rejected": errs[:3]}
+        res = {**base, **fallback_explanation(sym, inp["pct"], inp["vm"]), "rejected": errs[:3],
+               "llm_error": getattr(llm, "last_error", None)}
         self._why[key] = res
         return res
 
@@ -393,13 +394,16 @@ class DecisionService:
             ids = {c["id"] for c in cat}
             prompt = f"QUESTION: {q}\nSYMBOL: {sym}\nTOOL OUTPUTS:\n{json.dumps(outs, default=str)[:6000]}"
             for _ in range(2):
-                obj = llm.complete_json(prompt, system=ASK_SYSTEM, max_tokens=700, route="fast")
+                obj = llm.complete_json(prompt, system=ASK_SYSTEM, max_tokens=900, route="long")
                 ok, why = self._check_answer(obj, ids, outs)
                 if ok:
                     labels = {c["id"]: c for c in cat}
                     obj["citations"] = [labels[c["id"]] for c in obj.get("citations", []) if c.get("id") in labels]
                     return clean({**obj, "ok": True, "symbol": sym, "method": "llm", "caveat": RANK_CAVEAT})
                 prompt += f"\n\nYour previous answer was rejected: {why}"
+            res = self._deterministic_answer(sym, outs, cat)
+            res["llm_note"] = why or getattr(llm, "last_error", None)
+            return res
         return self._deterministic_answer(sym, outs, cat)
 
     def _check_answer(self, obj, ids: set[str], outs: dict) -> tuple[bool, str]:

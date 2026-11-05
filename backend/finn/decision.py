@@ -369,9 +369,15 @@ def backtest(series: dict[str, list[tuple[date, float]]], benchmark: Optional[li
     out["mean_ic"] = sum(ics) / len(ics) if ics else None
     spread = out["portfolios"]["top"]["cagr"] - out["portfolios"]["bottom"]["cagr"]
     out["top_minus_bottom_cagr"] = spread
-    out["summary"] = ("On this small universe the price signals did not separate winners from losers"
-                      if spread <= 0 else
-                      "On this small universe, the top third by price signals beat the bottom third over the period")
+    pt, pb = out["portfolios"]["top"], out["portfolios"]["bottom"]
+    if abs(spread) < 0.01:
+        out["summary"] = ("On this small universe the top and bottom thirds by price signals earned similar returns"
+                          + ("; the top third did so with lower volatility and a smaller worst fall"
+                             if pt["vol"] < pb["vol"] and pt["max_drawdown"] > pb["max_drawdown"] else ""))
+    elif spread < 0:
+        out["summary"] = "On this small universe the price signals did not separate winners from losers"
+    else:
+        out["summary"] = "On this small universe, the top third by price signals beat the bottom third over the period"
     p = out["portfolios"]
     out["implausible"] = any(v.get("cagr", 0) > 0.8 or (v.get("sharpe") or 0) > 3 or v.get("max_drawdown") == 0
                              for v in p.values())

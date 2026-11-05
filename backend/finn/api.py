@@ -145,7 +145,19 @@ def health() -> dict:
             "llm": bool(pipe.llm and pipe.llm.available), "web_search": bool(os.environ.get("TAVILY_API_KEY")),
             "history": {k: v for k, v in svc.backfill_state.items() if k != "failed"},
             "research_llm": bool(pipe.research and pipe.research.llm and pipe.research.llm.available),
-            "llm_models": [f"{p}/{m}" for p, _, _, m in pipe.llm.slots("long")] if pipe.llm else []}
+            "llm_models": [f"{p}/{m}" for p, _, _, m in pipe.llm.slots("long")] if pipe.llm else [],
+            "llm_usage": _llm_usage()}
+
+
+def _llm_usage() -> Optional[dict]:
+    """Call counts and the last few failures (model + error text only; never keys or prompts)."""
+    llm = pipe.llm
+    if not llm or not hasattr(llm, "usage_summary"):
+        return None
+    out = llm.usage_summary()
+    out["recent_failures"] = [f"{c.route}:{c.model}: {c.error}" for c in list(getattr(llm, "log", []))[-40:]
+                              if not c.ok][-6:]
+    return out
 
 
 def _thresholds(price_pct: Optional[float], vol_mult: Optional[float], lookback: Optional[int]) -> AlertThresholds:
