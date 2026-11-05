@@ -202,8 +202,10 @@ def fetch_many_yf(provider: "YFinanceProvider", insts: list[Instrument], days: i
             except Exception:  # noqa: BLE001
                 sub = None
         try:
-            out[inst.key] = frame_to_bars(sub, inst, source="yfinance") \
-                if sub is not None and not sub.empty and not last_close_missing(sub) else provider.fetch(inst, days)
+            # A null latest close is handled by Pipeline.top_up_sessions (one small request), not by re-fetching
+            # the whole span one symbol at a time.
+            out[inst.key] = frame_to_bars(sub, inst, source="yfinance") if sub is not None and not sub.empty \
+                else provider.fetch(inst, days)
         except PriceProviderError as e:
             out[inst.key] = e
     return out
