@@ -687,3 +687,36 @@ body { font-family: var(--sans); font-size: 15px; line-height: 1.45; letter-spac
 .r-back { border: 0; background: none; padding: 4px 0; margin: 0 0 4px; color: var(--accent); font: 600 14px/1.2 var(--sans); cursor: pointer; }
 .convo-link { position: sticky; bottom: calc(var(--nav-h) + 72px); display: block; margin: 0 auto 8px; padding: 8px 14px; border: 1px solid var(--rule-2);
   border-radius: 999px; background: #fff; color: var(--navy); font: 600 13px/1 var(--sans); cursor: pointer; box-shadow: 0 2px 10px rgba(14,26,43,.08); }
+
+/* ---------- decision support: FINN Signal, rank badge, health, morning briefing ---------- */
+.rank-b { display: inline-flex; align-items: baseline; margin-right: 8px; padding: 2px 7px; border-radius: 6px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); background: #F1F5F9; font-variant-numeric: tabular-nums; }
+.rank-b small, .rank-big small { font-size: 11px; font-weight: 500; color: var(--muted); }
+.signal + .card, .health + .card { margin-top: var(--s-3); }
+.sig-top { display: flex; gap: 14px; align-items: center; margin: 12px 0; }
+.rank-big { font-size: 34px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink); min-width: 64px; }
+.sig-label { margin: 0 0 2px; font-weight: 600; }
+.grades { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 4px; }
+.grades .g { display: flex; flex-direction: column; gap: 2px; padding: 8px; border: 1px solid var(--rule); border-radius: var(--r-sm); }
+.grades .gl { font-size: var(--fs-xs); color: var(--muted); }
+.grades .gr { font-size: var(--fs-xl); font-weight: 600; }
+.gr-A, .gr-B { color: var(--up); } .gr-D, .gr-F { color: var(--down); } .gr-C, .gr-na { color: var(--ink-2); }
+.grades .note { margin: 0; font-size: 11px; }
+.drivers, .flags, .srcs { list-style: none; margin: 8px 0; padding: 0; }
+.drivers li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--rule); font-size: var(--fs-sm); }
+.drivers li:first-child { border-top: 0; }
+.drivers .n { font-variant-numeric: tabular-nums; color: var(--ink-2); white-space: nowrap; }
+.flag { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; padding: 6px 0; border-top: 1px solid var(--rule); font-size: var(--fs-sm); }
+.flag:first-child { border-top: 0; }
+.flag .lvl { grid-row: span 2; align-self: start; padding: 1px 6px; border-radius: 5px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; }
+.flag.red .lvl { color: var(--down); background: var(--down-bg); } .flag.amber .lvl { color: var(--part); background: var(--part-bg); }
+.flag.info .lvl { color: var(--muted); background: #F1F5F9; }
+.flag .note { margin: 0; }
+.ask-f { display: flex; gap: 8px; margin-top: 6px; }
+.ask-f input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--rule-2); border-radius: var(--r-sm); font: inherit; }
+.ask-ans { margin-top: 10px; padding: 10px 12px; border-radius: var(--r-sm); background: #F8FAFC; font-size: var(--fs-sm); }
+.ask-ans ul { margin: 4px 0 8px; padding-left: 18px; }
+.ask-h { margin: 8px 0 0; font-weight: 600; font-size: var(--fs-xs); color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.caveat { margin: 12px 0 0; font-size: var(--fs-xs); color: var(--muted); }
+.aibrief .drivers a { color: inherit; text-decoration: none; }
+.aibrief .drivers a:hover { text-decoration: underline; }
+@media (max-width: 420px) { .grades { grid-template-columns: repeat(2, 1fr); } }

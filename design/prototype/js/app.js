@@ -2,10 +2,12 @@
 import { AS_OF, COMPANIES, ITEMS, EOD, DOSSIERS, RESEARCH } from "./fixtures.js";
 import { WINDOWS, DEFAULT_SETTINGS, CATEGORY_LABEL, evaluateAlerts, buildBriefing, buildLiveBriefing, periodTable,
   sectionize, sectionSpeech } from "./logic.js";
+import { getMove, askAgent, getPortfolioHealth, getRankList, getAgentBriefing } from "./api.js";
 import { detectApi, getDigest, getHealth, startRefresh, adaptDigest, getHoldings, searchStocks, getCompany,
   addHolding, removeHolding, startResearch, getResearch, askResearch, retrySection } from "./api.js";
 import { researchPicker, researchResults, researchDossier } from "./research.js";
 import { registry, resetRegistry, companyView, researchView, evidenceBody, settingsBody } from "./views.js";
+import { aiBriefCard } from "./signal.js";
 import { briefingV3, detailV3, aboutDataBody, portfolioV3, searchResults, companyV3, addSheet } from "./ui.js";
 import { barChart, lineChart, groupedBars, rangeStrip, sparkline } from "./charts.js";
 import { crShort, pctv, unitFmt, esc } from "./format.js";
@@ -37,11 +39,13 @@ async function once(key, fn) {
 // Live mode: on when the page is served by the FINN backend (same origin).
 const LIVE = { on: false, mode: null, digest: null, digestKey: "", loading: false, error: null, refreshing: false, message: "",
   holdings: null, holdingsLoading: false, companies: new Map(), companyLoading: null, health: null,
+  sig: new Map(), ranks: null, phealth: undefined, abrief: null, dsAt: 0, dsLoading: false,
   research: new Map(), rnotes: new Map(), asking: new Set() };
 // Windows are measured from the server's clock (the digest's generated_at), so a fixture server and a live one
 // both cut "last 24 hours" correctly.
 const nowMs = () => (LIVE.on ? (LIVE.digest?.generatedAt ? Date.parse(LIVE.digest.generatedAt) : Date.now()) : new Date(AS_OF).getTime());
 const thKey = () => `${S.settings.price_pct}|${S.settings.vol_mult}`;
+const holdingSymbols = () => new Set(LIVE.holdings ? LIVE.holdings.holdings.map((c) => c.symbol) : COMPANIES.filter((c) => c.holding).map((c) => c.symbol));
 const holdingsCount = () => (LIVE.holdings ? LIVE.holdings.holdings.length : COMPANIES.filter((c) => c.holding).length);
 
 function showToast(msg) {
@@ -70,6 +74,32 @@ async function loadHoldings() {
   try { LIVE.holdings = await getHoldings(S.settings); LIVE.holdingsStale = false; } catch (e) { showToast(`Couldn't load your stocks: ${e.message}`); }
   LIVE.holdingsLoading = false;
   render();
+}
+// Decision support: rank list, portfolio health and the morning briefing card, refreshed at most every 5 minutes.
+async function loadDecision() {
+  if (LIVE.dsLoading || Date.now() - LIVE.dsAt < 5 * 60e3) return;
+  LIVE.dsLoading = true;
+  const [r, h, b] = await Promise.allSettled([getRankList(), getPortfolioHealth(), getAgentBriefing()]);
+  if (r.status === "fulfilled") LIVE.ranks = Object.fromEntries(r.value.items.map((x) => [x.symbol, x]));
+  LIVE.phealth = h.status === "fulfilled" ? h.value : null;
+  if (b.status === "fulfilled") LIVE.abrief = b.value;
+  LIVE.dsAt = Date.now(); LIVE.dsLoading = false;
+  render();
+}
+const sigState = (sym) => { if (!LIVE.sig.has(sym)) LIVE.sig.set(sym, {}); return LIVE.sig.get(sym); };
+async function loadWhy(sym) {
+  const st = sigState(sym);
+  if (st.whyLoading) return;
+  st.whyLoading = true; renderKeep();
+  try { st.why = await getMove(sym); } catch (e) { st.why = { ok: false, reason: `Couldn't explain the move: ${e.message}` }; }
+  st.whyLoading = false; renderKeep();
+}
+async function runAsk(sym, q) {
+  const st = sigState(sym);
+  if (st.asking) return;
+  st.asking = true; st.q = q; renderKeep();
+  try { st.answer = await askAgent(sym, q); } catch (e) { st.answer = { headline: `Couldn't answer: ${e.message}` }; }
+  st.asking = false; renderKeep();
 }
 async function loadCompany(sym) {
   if (LIVE.companyLoading === sym) return;
@@ -251,10 +281,12 @@ function render() {
     const winLabel = WINDOWS.find((w) => w.id === windowId).label;
     S.lastBriefing = { sections: v.sections.map((s) => ({ ...s, items: s.items.filter((i) => !i.older) })), routine: v.routine, winLabel };
     if (S.filter !== "all" && !v.sections.some((s) => s.id === S.filter)) S.filter = "all";
-    const list = briefingV3({ ...v, windowId, holdings: holdingsCount(), selectedId: selId, speaking: S.speaking === "brief", speechOk,
+    const list = briefingV3({ ...v, windowId, holdings: holdingsCount(), holdingSyms: holdingSymbols(), selectedId: selId, speaking: S.speaking === "brief", speechOk,
       routineOpen: S.routineOpen, filter: S.filter, expanded: S.expanded, busy });
-    if (wide.matches) html = `<div class="split"><div class="col-list">${list}</div><aside class="pane" aria-label="Details">${detailV3(sel, { asPane: true, settings: S.settings })}</aside></div>`;
-    else html = sel ? detailV3(sel, { asPane: false, settings: S.settings }) : list;
+    if (LIVE.on) loadDecision();
+    const brief = LIVE.on && !sel ? aiBriefCard(LIVE.abrief) : "";
+    if (wide.matches) html = `<div class="split"><div class="col-list">${brief}${list}</div><aside class="pane" aria-label="Details">${detailV3(sel, { asPane: true, settings: S.settings })}</aside></div>`;
+    else html = sel ? detailV3(sel, { asPane: false, settings: S.settings }) : brief + list;
     if (selId && !sel) html = `<div class="card empty-card">That update is no longer in your briefing. <a href="#/briefing">Back</a></div>`;
     title = sel ? sel.title : "Briefing";
   } else if (top === "portfolio") {
@@ -266,8 +298,9 @@ function render() {
       const h = LIVE.holdings || { holdings: COMPANIES.filter((c) => c.holding && !c.fixture).map((c) => ({ ...c, signal: null })),
         watchlist: COMPANIES.filter((c) => !c.holding && !c.fixture).map((c) => ({ ...c, signal: null })), editable: false };
       const asOf = h.holdings.find((c) => c.signal?.as_of)?.signal.as_of;
+      if (LIVE.on) loadDecision();
       html = portfolioV3({ holdings: h.holdings, watchlist: h.watchlist, tab: S.ptab, editing: S.editing, editable: LIVE.on && h.editable,
-        live: LIVE.on, asOf, query: S.search.q, selected: S.selected });
+        live: LIVE.on, asOf, query: S.search.q, selected: S.selected, ranks: LIVE.ranks, health: LIVE.phealth });
     }
     title = "Portfolio";
   } else if (top === "company" || top === "companies") {
@@ -282,11 +315,11 @@ function render() {
       const c = LIVE.companies.get(sym);
       if (!c || Date.now() - c.at > 5 * 60e3) {
         if (LIVE.companyLoading !== sym) loadCompany(sym);
-        html = c?.data ? companyV3(c.data, tab) : `<div class="card empty-card" role="status">Loading ${esc(sym)}… the first visit fetches fundamentals from Screener.</div>`;
+        html = c?.data ? companyV3(c.data, tab, sigState(sym)) : `<div class="card empty-card" role="status">Loading ${esc(sym)}… the first visit fetches fundamentals from Screener.</div>`;
       } else if (c.error) {
         html = `<div class="card empty-card">Couldn't load ${esc(sym)}: ${esc(c.error)}</div>`;
       } else {
-        html = companyV3(c.data, tab);
+        html = companyV3(c.data, tab, sigState(sym));
         title = c.data.name;
       }
     }
@@ -299,7 +332,7 @@ function render() {
     } else {
       const r = LIVE.research.get(sym);
       if (!r) loadResearch(sym);
-      html = researchDossier({ sym, d: r?.data, tab: params.get("s") || "summary", notes: LIVE.rnotes.get(sym) || [], asking: LIVE.asking.has(sym), speechIn: !!SR, listening: !!S.rec });
+      html = researchDossier({ sym, d: r?.data, tab: ({ bull_bear: "case", bullbear: "case", "bull-bear": "case" })[params.get("s")] || params.get("s") || "summary", notes: LIVE.rnotes.get(sym) || [], asking: LIVE.asking.has(sym), speechIn: !!SR, listening: !!S.rec });
       title = r?.data?.name ? `${r.data.name} research` : "Research";
     }
     title = title === "Briefing" ? "Research" : title;
@@ -506,6 +539,7 @@ document.addEventListener("click", async (e) => {
     case "snooze": S.marks.snoozed[ds.id] = nowMs() + 24 * 3600e3; store.set("marks", S.marks); afterMark(ds.id); break;
     case "refresh": if (!LIVE.refreshing) runRefresh(); break;
     case "retry-live": LIVE.error = null; render(); break;
+    case "why-move": loadWhy(ds.symbol); break;
     case "restore": S.marks = { done: {}, snoozed: {} }; store.set("marks", S.marks); render(); break;
     case "open-settings": case "menu": if (dlg.open) break; openDialog(settingsBody({ settings: S.settings, holdings: [] })); break;
     case "about-data": if (dlg.open) break; openDialog(aboutDataBody({ disclosures: LIVE.digest?.disclosures || ["Demo data: invented companies and documents, apart from four real Infosys filing links."], sources: LIVE.digest?.sources || [] })); break;
@@ -560,6 +594,10 @@ document.addEventListener("submit", (e) => {
       categories: Object.fromEntries(Object.keys(DEFAULT_SETTINGS.categories).map((k) => [k, on.has(k)])) };
     store.set("settings", S.settings);
     dlg.close(); LIVE.holdingsStale = true; LIVE.stale = true; render();
+  } else if (f.dataset.ask) {
+    e.preventDefault();
+    const q = String(new FormData(f).get("q") || "").trim();
+    if (q) runAsk(f.dataset.ask, q);
   } else if (f.dataset.form === "rask") {
     e.preventDefault();
     const sym = currentResearch(), q = String(new FormData(f).get("q") || "");

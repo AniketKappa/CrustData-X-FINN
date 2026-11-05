@@ -1,3 +1,4 @@
+import { signalCard, healthCard, rankBadge, CAVEAT } from "./signal.js";
 // Views for the v3 app (D-55): Briefing, item detail, Portfolio and live company pages. HTML strings only.
 import { esc, crShort, price, change, dt, timeAgo, clock, dayLong, greeting, pctPill, avatar, shortName, shortDate } from "./format.js";
 import { WINDOWS, CATEGORY_LABEL } from "./logic.js";
@@ -64,13 +65,16 @@ function personMini(p) {
 }
 
 const CAP = 5;
-export function briefingV3({ movers = [], sessions = 1, sections, routine, hidden, windowId, asOf, holdings, selectedId, speaking, speechOk, routineOpen, live, filter, counts, expanded = new Set(), busy = new Set() }) {
+export function briefingV3({ movers = [], sessions = 1, sections, routine, hidden, windowId, asOf, holdings, holdingSyms = null, selectedId, speaking, speechOk, routineOpen, live, filter, counts, expanded = new Set(), busy = new Set() }) {
   const w = WINDOWS.find((x) => x.id === windowId);
   const total = sections.reduce((n, s) => n + s.items.filter((i) => !i.older).length, 0);
-  const companies = new Set(sections.flatMap((s) => s.items.filter((i) => !i.older).map((i) => i.symbol))).size;
+  const touched = new Set(sections.flatMap((s) => s.items.filter((i) => !i.older).map((i) => i.symbol)));
+  // B2: count holdings and watchlist stocks separately ("13 of your 20 holdings and 2 watchlist stocks").
+  const companies = holdingSyms ? [...touched].filter((x) => holdingSyms.has(x)).length : touched.size;
+  const watchN = holdingSyms ? touched.size - companies : 0;
   const parts = sections.filter((s) => s.items.some((i) => !i.older)).map((s) => { const n = s.items.filter((i) => !i.older).length; return `${n} ${n === 1 ? s.one : s.many}`; });
   const sum = total
-    ? `<b>${total} update${total === 1 ? "" : "s"}</b> across ${companies} of your ${holdings} holdings · last ${esc(w.label)}`
+    ? `<b>${total} update${total === 1 ? "" : "s"}</b> across ${companies} of your ${holdings} holdings${watchN ? ` and ${watchN} watchlist stock${watchN === 1 ? "" : "s"}` : ""} · last ${esc(w.label)}`
     : live?.refreshing ? `Fetching prices, filings and news for your ${holdings} holdings…`
     : `A quiet ${esc(w.label)} for your ${holdings} holdings. Try 3D or 7D for the wider picture.`;
   void parts;
@@ -192,13 +196,13 @@ export function aboutDataBody({ disclosures, sources }) {
 // Search finds any stock and opens its page. Changing the lists happens only in Edit, which has two actions:
 // Add (a sheet with its own search) and Delete (removes the ticked rows).
 const CHECK = `<svg class="ic sm" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10.5l3.2 3L15 6.5"/></svg>`;
-export function portfolioV3({ holdings, watchlist, tab, editing, editable, live, asOf, query, selected = new Set() }) {
+export function portfolioV3({ holdings, watchlist, tab, editing, editable, live, asOf, query, selected = new Set(), ranks = null, health = undefined }) {
   const list = tab === "watch" ? watchlist : holdings;
   const listName = tab === "watch" ? "watchlist" : "holdings";
   const rowp = (c) => {
     const s = c.signal || {};
     const on = selected.has(c.symbol);
-    const right = `<span class="li-right"><span class="px">${s.close != null ? price(s.close) : "—"}</span>${s.close != null ? pctPill(s.pct_change) : `<span class="note">${esc(s.availability === "no_data" ? "No price" : "Loading")}</span>`}</span>`;
+    const right = `<span class="li-right">${ranks ? rankBadge(ranks[c.symbol]) : ""}<span class="px">${s.close != null ? price(s.close) : "—"}</span>${s.close != null ? pctPill(s.pct_change) : `<span class="note">${esc(s.availability === "no_data" ? "No price" : "Loading")}</span>`}</span>`;
     const who = `${avatar(c.symbol, c.name)}<span class="li-co"><span class="nm">${esc(shortName(c.name))}</span><span class="sub">${esc(c.symbol)}${c.sector ? " · " + esc(c.sector) : ""}${s.live ? " · live" : ""}</span></span>`;
     if (editing) return `<button type="button" class="li li-select" data-act="select-stock" data-symbol="${esc(c.symbol)}" aria-pressed="${on}">
       <span class="tick" aria-hidden="true">${on ? CHECK : ""}</span>${who}${right}</button>`;
@@ -218,7 +222,9 @@ export function portfolioV3({ holdings, watchlist, tab, editing, editable, live,
       <button type="button" class="btn primary" data-act="open-add">${SRC.plus}Add</button>
       <button type="button" class="btn danger" data-act="delete-selected" ${n ? "" : "disabled"}>${SRC.trash}Delete${n ? ` ${n}` : ""}</button>
       <span class="note">${n ? `${n} selected` : "Tick stocks to delete"}</span></div>` : ""}
+    ${live && tab !== "watch" && !editing ? healthCard(health) : ""}
     <div class="card list">${list.map(rowp).join("") || `<div class="empty-card">No stocks here yet.${editable ? " Tap Edit, then Add." : ""}</div>`}</div>
+    ${ranks ? `<p class="caption">The number by each price is FINN Rank (1–10) vs the stocks FINN tracks. ${esc(CAVEAT)}</p>` : ""}
     ${!editable && !live ? `<p class="note">Run FINN's backend to change your lists; this view shows the demo list.</p>` : ""}
 `;
 }
@@ -256,13 +262,14 @@ function tableCard(t, keys, title, unit = "₹ crore", last = 5) {
     </tbody></table></div></div>`;
 }
 
-export function companyV3(c, tab) {
+export function companyV3(c, tab, sig = {}) {
   const s = c.signal || {}, snap = c.snapshot;
   const hist = c.history || [];
   const spark = hist.length > 2 ? chartRef("spark", { values: hist.map((h) => h.close), labels: hist.map((h) => shortDate(h.date)), label: `${c.name} closing price, last ${hist.length} sessions` }) : null;
   const nav = TABS.map(([id, l]) => `<a href="#/company/${encodeURIComponent(c.symbol)}/${id}" ${id === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("");
   let body = "";
   if (tab === "overview") {
+    body += signalCard(c, sig);
     body += c.results ? `<div class="card" style="padding:16px"><div class="sec-head" style="margin:0"><b>Latest results · ${esc(c.results.periods[0])}</b><span class="sec-sub">${esc(c.results.basis)}</span></div>${tiles(adaptRes(c.results))}</div>` : "";
     body += snap?.ratios?.length ? `<div class="card"><dl class="stats">${snap.ratios.filter(([k]) => !/current price/i.test(k)).slice(0, 8).map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl></div>` : "";
     body += snap?.about ? `<div class="card about">${esc(snap.about)}</div>` : "";

@@ -100,7 +100,7 @@ export function researchDossier({ sym, d, tab = "summary", notes, asking, speech
     case "drivers": body = S.narrative ? claimList(S.narrative.claims, S.narrative.sources, counter) + gapsLine(S.narrative.gaps) + llmMsg(S.narrative, "narrative") : pendingOr(d, "narrative"); break;
     case "numbers": body = numbersBody(d, ["financial", "trajectory"], counter); break;
     case "cash": body = numbersBody(d, ["balance", "cash"], counter); break;
-    case "case": body = bullBear(S.bull_bear, counter) || pendingOr(d, "bull_bear"); break;
+    case "case": body = bullBear(S.bull_bear || S.case, counter) || pendingOr(d, "bull_bear"); break;
     case "ask": body = askThread({ name, notes }); break;
     case "sources": body = docsList(d); break;
   }
@@ -216,7 +216,7 @@ function docsList(d) {
   if (!docs.length) return pendingOr(d, "documents");
   const kind = { transcript: "Call transcript", presentation: "Investor presentation", annual_report: "Annual report" };
   return `<ul class="docs">${docs.map((x) => `<li><span class="dk">${esc(kind[x.kind] || x.kind)}</span><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)} ${I.ext}</a>
-      <span class="muted">${x.status === "ok" ? `${x.pages_read}${x.pages > x.pages_read ? ` of ${x.pages}` : ""} pages read · ${esc(x.host)}` : x.status === "failed" ? `Couldn't read: ${esc(x.error || "")}` : "Waiting"}</span></li>`).join("")}</ul>
+      <span class="muted">${x.status === "ok" ? `${x.pages_read}${x.pages > x.pages_read ? ` of ${x.pages}` : ""} page${(x.pages > x.pages_read ? x.pages : x.pages_read) === 1 ? "" : "s"} read · ${esc(x.host)}` : x.status === "failed" ? `Couldn't read: ${esc(x.error || "")}` : "Waiting"}</span></li>`).join("")}</ul>
     ${d.fundamentals_url ? `<p class="caption">Numbers: <a href="${esc(d.fundamentals_url)}" target="_blank" rel="noopener">Screener standardised tables</a>, used for figures only.</p>` : ""}
     ${d.usage ? `<p class="caption">Models: ${esc(Object.keys(d.usage.by_model || {}).join(", ") || "none")} · ${d.usage.ok} calls · ~${crShort(d.usage.tokens)} tokens (free tier).</p>` : ""}`;
 }

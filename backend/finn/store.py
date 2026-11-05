@@ -90,6 +90,25 @@ class Store:
                          high=r["high"], low=r["low"], close=r["close"], volume=r["volume"],
                          provenance=Provenance.model_validate_json(r["provenance"])) for r in reversed(rows)]
 
+    def bar_stats(self) -> dict[str, dict]:
+        """Per instrument: number of bars and first/last date (for /v1/data-status)."""
+        with self._lock:
+            rows = self._db.execute("SELECT instrument_key k, COUNT(*) n, MIN(date) a, MAX(date) b FROM price_bars "
+                                    "GROUP BY instrument_key").fetchall()
+        return {r["k"]: {"bars": r["n"], "first": r["a"], "last": r["b"]} for r in rows}
+
+    def closes(self, instrument_key: str, limit: int = 4000) -> list[tuple[date, float]]:
+        """(date, close) ascending, without the provenance payload (cheap for factor and backtest maths)."""
+        with self._lock:
+            rows = self._db.execute("SELECT date, close FROM price_bars WHERE instrument_key=? ORDER BY date DESC "
+                                    "LIMIT ?", (instrument_key, limit)).fetchall()
+        return [(date.fromisoformat(r["date"]), r["close"]) for r in reversed(rows)]
+
+    def earliest_announcement(self) -> Optional[datetime]:
+        with self._lock:
+            r = self._db.execute("SELECT MIN(filed_at) m FROM announcements").fetchone()
+        return datetime.fromisoformat(r["m"]) if r and r["m"] else None
+
     # ---------- announcements ----------
     def add_announcements(self, items: Iterable[Announcement]) -> tuple[int, int]:
         """Insert new records; duplicates (same uid) are merged, never duplicated. Returns (new, merged)."""

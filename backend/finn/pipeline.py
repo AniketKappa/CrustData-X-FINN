@@ -393,7 +393,7 @@ class Pipeline:
         anns = self.store.announcements_for(symbol)
         return {
             "symbol": symbol, "name": (c.name if c else (snap.name if snap else symbol)),
-            "role": c.role if c else "other", "sector": (snap.sector if snap and snap.sector else (c.sector if c else None)),
+            "role": c.role if c else "other", "sector": (c.sector if c and c.sector else (snap.sector if snap else None)),   # B5: curated first
             "industry": snap.industry if snap else None, "exchange": inst.exchange,
             "signal": sig.model_dump(mode="json"),
             "history": [{"date": b.date.isoformat(), "close": b.close, "volume": b.volume} for b in bars],

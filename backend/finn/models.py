@@ -208,6 +208,7 @@ class DigestItem(BaseModel):
     related: list[dict] = Field(default_factory=list)   # other outlets' headlines for the same story
     person: Optional[dict] = None         # management changes: incoming person and sourced background
     summary: Optional[str] = None         # optional generated one-liner, shown IN ADDITION to the title
+    why: Optional[dict] = None            # market alerts: "why did it move" {summary, cited_ids, confidence_note}
 
 
 class SourceStatus(BaseModel):

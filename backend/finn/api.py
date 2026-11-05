@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config import REPO_DIR
+from .decision_service import DecisionService
 from .factory import build_pipeline
 from .models import AlertThresholds, Company, Digest, MarketSignal, SourceStatus
 from .providers.search import yahoo_search
@@ -32,8 +33,11 @@ _search_fn = yahoo_search
 
 MODE = "fixture" if os.environ.get("FINN_DATA_MODE", "live").lower() == "fixture" else "live"
 pipe = build_pipeline(MODE)
+svc = DecisionService(pipe)
 if MODE == "fixture":
     pipe.refresh_all()
+    if os.environ.get("FINN_FIXTURE_BACKFILL", "1") != "0":
+        svc.backfill(years=int(os.environ.get("FINN_HISTORY_YEARS", "3")))
 
 _refresh_lock = threading.Lock()
 _refresh_state: dict = {"running": False, "stage": None, "last_started": None, "last_ready": None,
@@ -76,6 +80,7 @@ def _startup() -> None:
     one at a time, so opening them is instant. FINN_PREBUILD_RESEARCH=0 turns this off."""
     import time as _t
     _safe(_do_refresh)
+    _safe(svc.backfill)                               # long history for rank/backtest (ephemeral store: every boot)
     n = int(os.environ.get("FINN_PREBUILD_RESEARCH", "2"))
     if n <= 0 or not (pipe.research and pipe.research.llm and pipe.research.llm.available):
         return
@@ -127,6 +132,7 @@ def health() -> dict:
     return {"ok": True, "mode": MODE, "announcements": pipe.store.count_announcements(),
             "refresh": {k: v for k, v in _refresh_state.items() if k != "last_result"},
             "llm": bool(pipe.llm and pipe.llm.available), "web_search": bool(os.environ.get("TAVILY_API_KEY")),
+            "history": {k: v for k, v in svc.backfill_state.items() if k != "failed"},
             "research_llm": bool(pipe.research and pipe.research.llm and pipe.research.llm.available),
             "llm_models": [f"{p}/{m}" for p, _, _, m in pipe.llm.slots("long")] if pipe.llm else []}
 
@@ -146,9 +152,16 @@ def _thresholds(price_pct: Optional[float], vol_mult: Optional[float], lookback:
 def digest(window_hours: int = Query(24), price_pct: Optional[float] = None, vol_mult: Optional[float] = None,
            lookback: Optional[int] = None) -> Digest:
     try:
-        return pipe.digest(window_hours, _thresholds(price_pct, vol_mult, lookback))
+        d = pipe.digest(window_hours, _thresholds(price_pct, vol_mult, lookback))
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
+    for it in d.high + d.normal + d.routine:          # "why did it move" (cached LLM text, else deterministic)
+        if it.kind == "market_alert" and it.symbol and it.alert is not None:
+            try:
+                it.why = svc.why_quick(it.symbol, it.alert.date)
+            except Exception:  # noqa: BLE001 - an explanation must never break the digest
+                it.why = None
+    return d
 
 
 @app.get("/v1/market", response_model=list[MarketSignal])
@@ -230,7 +243,7 @@ def search(q: str = Query(..., min_length=1, max_length=60)) -> dict:
 
 
 @app.get("/v1/company/{symbol}")
-def company(symbol: str) -> dict:
+def company(symbol: str, days: Optional[int] = Query(None, ge=1, le=4000)) -> dict:
     sym = symbol.upper()
     try:
         normalize(sym)
@@ -242,7 +255,13 @@ def company(symbol: str) -> dict:
         pipe.refresh_prices([sym])
         if pipe.screener is not None:
             pipe.refresh_companies([sym])
-    return pipe.company_view(sym)
+    view = pipe.company_view(sym)
+    if days and days > 0:          # longer chart history from the backfilled store
+        view["history_long"] = svc.history(sym, days)["series"]
+    if sym in svc.universe():
+        view["rank"] = svc.rank_all().get(sym)
+        view["flags"] = svc.flags([sym])["items"]
+    return view
 
 
 # ---------------------------------------------------------------- Pull research (any NSE ticker)
@@ -286,7 +305,18 @@ def research_start(symbol: str, request: Request, force: bool = False) -> dict:
 
 @app.get("/v1/research/{symbol}")
 def research_status(symbol: str) -> dict:
-    return pipe.research.status(_sym(symbol))
+    return _fix_text(pipe.research.status(_sym(symbol)))
+
+
+def _fix_text(obj):
+    """B4: dossiers cached before the wording fix still say 'about the same than'; correct them when served."""
+    if isinstance(obj, str):
+        return obj.replace("about the same than", "about the same as")
+    if isinstance(obj, list):
+        return [_fix_text(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _fix_text(v) for k, v in obj.items()}
+    return obj
 
 
 @app.post("/v1/research/{symbol}/retry")
@@ -325,6 +355,104 @@ def refresh(force: bool = False, background: bool = False, x_finn_secret: Option
         return _do_refresh(force)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"refresh failed: {e}") from e
+
+
+# ---------------------------------------------------------------- decision support (playbook §7–§10)
+def _check_secret(x_finn_secret: Optional[str]) -> None:
+    secret = os.environ.get("INGEST_SHARED_SECRET", "")
+    if secret and not hmac.compare_digest(secret, x_finn_secret or ""):
+        raise HTTPException(401, "missing or wrong X-Finn-Secret")
+
+
+@app.get("/v1/history/{symbol}")
+def history(symbol: str, days: int = Query(3650, ge=1, le=4000)) -> dict:
+    s = symbol.upper()
+    if s not in ("NIFTY50", "NIFTY500"):
+        s = _sym(s)
+    return svc.history(s, days)
+
+
+@app.get("/v1/benchmark")
+def benchmark(days: int = Query(3650, ge=1, le=4000), index: str = Query("NIFTY50", pattern="^(NIFTY50|NIFTY500)$")):
+    return svc.history(index, days)
+
+
+@app.get("/v1/data-status")
+def data_status() -> dict:
+    return svc.data_status()
+
+
+@app.get("/v1/rank")
+def rank(scope: str = Query("portfolio", pattern="^(portfolio|universe)$")) -> dict:
+    return svc.rank_list(scope)
+
+
+@app.get("/v1/rank/{symbol}")
+def rank_one(symbol: str) -> dict:
+    s = _sym(symbol)
+    r = svc.rank_all().get(s)
+    if r is None:
+        raise HTTPException(404, f"{s} is not one of FINN's tracked stocks; add it to the portfolio to rank it")
+    return r
+
+
+@app.get("/v1/backtest/latest")
+def backtest_latest() -> dict:
+    return svc.backtest_latest()
+
+
+@app.get("/v1/flags")
+def flags(scope: str = Query("portfolio", pattern="^(portfolio|universe)$")) -> dict:
+    syms = [c.symbol for c in pipe.portfolio.holdings] if scope == "portfolio" else None
+    return svc.flags(syms)
+
+
+@app.get("/v1/flags/{symbol}")
+def flags_one(symbol: str) -> dict:
+    return svc.flags([_sym(symbol)])
+
+
+@app.get("/v1/moves/{symbol}")
+def moves(symbol: str, request: Request, date: Optional[str] = None) -> dict:
+    from datetime import date as _date
+    _limit(request, "ask")
+    try:
+        on = _date.fromisoformat(date) if date else None
+    except ValueError as e:
+        raise HTTPException(422, "date must be YYYY-MM-DD") from e
+    return svc.why(_sym(symbol), on)
+
+
+class AgentAsk(BaseModel):
+    question: str
+    symbol: Optional[str] = None
+
+
+@app.post("/v1/agent/ask")
+def agent_ask(body: AgentAsk, request: Request) -> dict:
+    _limit(request, "ask")
+    if len(body.question or "") > 500:
+        raise HTTPException(422, "question too long (max 500 characters)")
+    return svc.ask(body.question, body.symbol)
+
+
+@app.get("/v1/agent/briefing")
+def agent_briefing() -> dict:
+    return svc.briefing()
+
+
+@app.get("/v1/portfolio/health")
+def portfolio_health() -> dict:
+    return svc.health()
+
+
+@app.post("/jobs/backfill")
+def jobs_backfill(x_finn_secret: Optional[str] = Header(None), years: int = Query(10, ge=1, le=12)) -> dict:
+    _check_secret(x_finn_secret)
+    if svc.backfill_state["running"]:
+        return {"started": False, "running": True}
+    threading.Thread(target=lambda: _safe(lambda: svc.backfill(years)), daemon=True).start()
+    return {"started": True, "running": True}
 
 
 # The web app. Mounted last so API routes win. html=True serves index.html at "/".

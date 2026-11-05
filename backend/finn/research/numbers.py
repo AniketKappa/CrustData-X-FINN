@@ -264,7 +264,7 @@ def balance(s, fb: FactBook, lender: bool) -> NumbersSection:
             d = ccc.value - first[1]
             sec.observations.append(Observation(
                 text=f"Cash is tied up in operations for {fmt(ccc.value, 'days')} (cash conversion cycle), "
-                     f"{'longer' if d > 5 else 'shorter' if d < -5 else 'about the same'} than in {sec.table['head'][0]} "
+                     f"{'longer than' if d > 5 else 'shorter than' if d < -5 else 'about the same as'} in {sec.table['head'][0]} "
                      f"({fmt(first[1], 'days')}).", facts=[ccc.id], tone="watch" if d > 5 else "neutral"))
     return sec
 

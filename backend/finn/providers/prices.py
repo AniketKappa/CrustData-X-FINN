@@ -31,10 +31,21 @@ class PriceProvider(Protocol):
 FrameFetcher = Callable[[str, int, float], "object"]   # (yahoo_symbol, days, timeout) -> pandas.DataFrame
 
 
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def yf_window(days: int, now: datetime | None = None) -> tuple[str, str]:
+    """Explicit [start, end) dates for Yahoo. `end` is tomorrow in IST because Yahoo's end date is exclusive:
+    with `period=` (or end=today) the latest Indian session was sometimes missing (bug B1)."""
+    today = (now or datetime.now(timezone.utc)).astimezone(IST).date()
+    return (today - timedelta(days=days)).isoformat(), (today + timedelta(days=1)).isoformat()
+
+
 def _yf_fetch(yahoo_symbol: str, days: int, timeout: float):
     import yfinance as yf  # imported lazily so tests and fixture mode never need the network
 
-    return yf.Ticker(yahoo_symbol).history(period=f"{days}d", interval="1d", auto_adjust=False,
+    start, end = yf_window(days)
+    return yf.Ticker(yahoo_symbol).history(start=start, end=end, interval="1d", auto_adjust=False,
                                            actions=False, timeout=timeout, raise_errors=True)
 
 
@@ -71,7 +82,8 @@ class YFinanceProvider:
 def _yf_download(yahoo_symbols: list[str], days: int, timeout: float):
     import yfinance as yf
 
-    return yf.download(tickers=" ".join(yahoo_symbols), period=f"{days}d", interval="1d", group_by="ticker",
+    start, end = yf_window(days)
+    return yf.download(tickers=" ".join(yahoo_symbols), start=start, end=end, interval="1d", group_by="ticker",
                        auto_adjust=False, actions=False, threads=True, progress=False, timeout=timeout)
 
 
@@ -181,6 +193,8 @@ class FixturePriceProvider:
             raise PriceProviderError("no_data", f"fixture: no data for {inst.yahoo}")
         if sc == "error":
             raise PriceProviderError("error", "fixture: simulated provider timeout")
+        if days > 60 and sc != "short_history":
+            return self._long(inst, days, sc)
         end = self.as_of if sc != "stale" else weekdays_back(self.as_of, 6)[0]
         n = 6 if sc == "short_history" else min(days, 40)
         dates = weekdays_back(end, n)
@@ -207,3 +221,19 @@ class FixturePriceProvider:
                                                retrieved_at=now, data_date=d, fixture=True,
                                                locator=f"synthetic bar ({sc})"))
                 for d, c, v in zip(dates, closes, vols)]
+
+    def _long(self, inst: Instrument, days: int, sc: str) -> list[PriceBar]:
+        """A long backfill: the same recent 40 sessions as a normal fetch, preceded by an older synthetic walk
+        computed backwards from them, so refresh and backfill never disagree on a date."""
+        recent = self.fetch(inst, 40)
+        older = weekdays_back(recent[0].date - timedelta(days=1), max(0, days * 5 // 7 - len(recent)))
+        c = recent[0].close
+        rows = []
+        for i, d in enumerate(reversed(older)):
+            h = int(hashlib.sha256(f"{inst.key}:{i}".encode()).hexdigest()[:6], 16)
+            c = round(c / (1 + (h % 41 - 20) / 1000 + 0.0003), 2)    # -2% .. +2% a day, slight upward drift
+            rows.append((d, max(c, 1.0), recent[0].volume))
+        p0 = recent[0].provenance
+        return [PriceBar(instrument_key=inst.key, date=d, open=x, high=x, low=x, close=x, volume=v,
+                         provenance=p0.model_copy(update={"data_date": d}))
+                for d, x, v in reversed(rows)] + recent

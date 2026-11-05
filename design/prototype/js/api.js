@@ -41,6 +41,11 @@ export const startResearch = (sym, force = false) => getJSON(`/v1/research/${enc
 export const retrySection = (sym, sec) => getJSON(`/v1/research/${encodeURIComponent(sym)}/retry?section=${encodeURIComponent(sec)}`, { method: "POST", timeout: 120000 });
 export const getResearch = (sym) => getJSON(`/v1/research/${encodeURIComponent(sym)}`, { timeout: 10000 });
 export const askResearch = (sym, question, history = []) => getJSON(`/v1/research/${encodeURIComponent(sym)}/ask`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question, history }), timeout: 120000 });
+export const getMove = (sym) => getJSON(`/v1/moves/${encodeURIComponent(sym)}`, { timeout: 60000 });
+export const askAgent = (symbol, question) => getJSON("/v1/agent/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol, question }), timeout: 90000 });
+export const getPortfolioHealth = () => getJSON("/v1/portfolio/health", { timeout: 30000 });
+export const getRankList = () => getJSON("/v1/rank?scope=universe", { timeout: 30000 });
+export const getAgentBriefing = () => getJSON("/v1/agent/briefing", { timeout: 30000 });
 export const startRefresh = () => getJSON("/jobs/refresh?background=true", { method: "POST", timeout: 8000 });
 
 // The app always loads the 7-day digest once and filters by window on the device, so switching windows is

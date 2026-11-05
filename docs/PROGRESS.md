@@ -5,7 +5,7 @@ Update this file at the end of **every** phase. Record only what is actually don
 
 ## Current status
 - **Phase**: 0 complete, including the design system and static prototype → next is **Phase 1**: environment, repo, keys and spikes S1–S9 (O1–O3 decided by D-38; O4 open)
-- **Implemented features**: none. No application code exists yet.
+- **Implemented features**: see the phase entries below (latest: Phase 3 hackathon decision support).
 - **Deployed URL**: none yet
 
 ---
@@ -215,6 +215,24 @@ Update this file at the end of **every** phase. Record only what is actually don
 
 **Not verified**
 - Tavily and Groq/OpenRouter calls (no keys in this environment); PDF brief-profile extraction against a real NSE attachment.
+
+## Phase 3 (hackathon): Decision support — rank, backtest, flags, why-moved, Ask FINN, health (2026-11-06)
+**Done**
+- Bug fixes: B1 Yahoo requests use explicit start/end with end = tomorrow in IST (latest session no longer dropped); B2 Briefing header counts holdings and watchlist stocks separately; B3 `?s=bull_bear` deep link maps to the Bull & bear tab; B4 "about the same as" (generator fixed and cached dossiers corrected when served) and "1 page read"; B5 company page prefers the curated portfolio sector.
+- Background 10-year price backfill after start-up for tracked stocks + `^NSEI`/`^CRSLDX` (`finn/decision_service.py`), `POST /jobs/backfill` (secret-protected).
+- New endpoints: `/v1/history/{symbol}`, `/v1/benchmark`, `/v1/data-status`, `/v1/rank`, `/v1/rank/{symbol}`, `/v1/backtest/latest`, `/v1/flags`, `/v1/flags/{symbol}`, `/v1/moves/{symbol}`, `POST /v1/agent/ask`, `/v1/agent/briefing`, `/v1/portfolio/health`; `/v1/company/{symbol}` gains `rank`, `flags` and `history_long` (`?days=`); digest market alerts gain `why`.
+- Pure logic in `finn/decision.py` (factors, guards, percentiles, grades, labels, backtest, flag rules, date parser, explanation validator, health).
+- UI: FINN Signal card on the company overview (rank, grades, drivers, red flags, "Why did it move?", Ask FINN), rank badges and a Portfolio health card on Portfolio, a Morning briefing card on the Briefing; caveat on every decision view.
+
+**Verified**
+- `pytest`: 224 passed, 0 failed (37 new, up from 187: Appendix E flag fixtures 27/27, 6 day-first date formats, Appendix F price fixtures, CFO/PAT and negative-equity guards, NaN-free JSON, backtest equal-weight and benchmark consistency, a no-look-ahead tamper test, explanation validator, health de-duplication, all new endpoints in fixture mode).
+- `node --check` on every JS module; fixture-mode UI rendered in headless Chromium (Briefing, Portfolio, company page with Why/Ask) with no page errors.
+
+**Not verified**
+- Live data: the build sandbox can't reach Yahoo/BSE/Screener, so the live backfill, `^CRSLDX` availability, real rank distribution and the live backtest numbers are unmeasured until deployed.
+- LLM-written explanations and Ask FINN answers (no keys in the sandbox); only the deterministic paths and the validators were tested.
+
+**Next**: deploy the Render Blueprint, check `/v1/data-status` (expect ≥ 20 symbols with 1-year history) and `/v1/backtest/latest`, then record the measured numbers here.
 
 ## Metrics (filled in as measured)
 | Metric | Value | Date |
