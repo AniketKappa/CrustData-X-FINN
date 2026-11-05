@@ -79,8 +79,8 @@ def _startup() -> None:
     """Fetch everything, then pre-build the research dossiers for the watchlist (the ad-hoc research companies),
     one at a time, so opening them is instant. FINN_PREBUILD_RESEARCH=0 turns this off."""
     import time as _t
+    threading.Thread(target=_backfill_when_ready, daemon=True).start()
     _safe(_do_refresh)
-    _safe(svc.backfill)                               # long history for rank/backtest (ephemeral store: every boot)
     n = int(os.environ.get("FINN_PREBUILD_RESEARCH", "2"))
     if n <= 0 or not (pipe.research and pipe.research.llm and pipe.research.llm.available):
         return
@@ -93,6 +93,17 @@ def _startup() -> None:
                 _t.sleep(2)
         except Exception:  # noqa: BLE001 - prebuilding is a convenience; never crash the server
             continue
+
+
+def _backfill_when_ready() -> None:
+    """Long history for rank/backtest (the store is ephemeral, so every boot). Starts once the first refresh
+    reaches 'ready' (prices and filings are in) instead of waiting for PDF reading to finish."""
+    import time as _t
+    for _ in range(90):
+        if _refresh_state.get("last_ready") or (_refresh_state.get("last_finished") and not _refresh_state["running"]):
+            break
+        _t.sleep(2)
+    _safe(svc.backfill)
 
 
 def _keep_fresh() -> None:

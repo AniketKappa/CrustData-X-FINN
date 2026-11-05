@@ -45,8 +45,14 @@ def _yf_fetch(yahoo_symbol: str, days: int, timeout: float):
     import yfinance as yf  # imported lazily so tests and fixture mode never need the network
 
     start, end = yf_window(days)
-    return yf.Ticker(yahoo_symbol).history(start=start, end=end, interval="1d", auto_adjust=False,
-                                           actions=False, timeout=timeout, raise_errors=True)
+    t = yf.Ticker(yahoo_symbol)
+    frame = t.history(start=start, end=end, interval="1d", auto_adjust=False, actions=False, timeout=timeout,
+                      raise_errors=True)
+    try:   # Yahoo's quote metadata holds the session price when the daily row's close is still null (B1)
+        frame.attrs["finn_meta"] = dict(t.history_metadata or {})
+    except Exception:  # noqa: BLE001 - metadata is a bonus; the bars still stand
+        pass
+    return frame
 
 
 class YFinanceProvider:
@@ -108,11 +114,33 @@ def fetch_many_yf(provider: "YFinanceProvider", insts: list[Instrument], days: i
             except Exception:  # noqa: BLE001
                 sub = None
         try:
-            out[inst.key] = frame_to_bars(sub, inst, source="yfinance") if sub is not None and not sub.empty \
-                else provider.fetch(inst, days)
+            out[inst.key] = frame_to_bars(sub, inst, source="yfinance") \
+                if sub is not None and not sub.empty and not last_close_missing(sub) else provider.fetch(inst, days)
         except PriceProviderError as e:
             out[inst.key] = e
     return out
+
+
+def last_close_missing(frame) -> bool:
+    """Yahoo sometimes returns the latest daily row with open/high/low/volume but a null close for hours after
+    the session (observed 6 Nov 2026 04:00 IST for every NSE stock). The batch download has no quote metadata
+    to fill it, so such symbols are re-fetched one by one."""
+    try:
+        return _num(frame.iloc[-1].get("Close")) is None
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _session_price(frame) -> tuple[date, float] | None:
+    meta = getattr(frame, "attrs", {}).get("finn_meta") or {}
+    price, ts = _num(meta.get("regularMarketPrice")), meta.get("regularMarketTime")
+    if price is None or price <= 0 or not ts:
+        return None
+    try:
+        d = datetime.fromtimestamp(int(ts), tz=timezone.utc).astimezone(IST).date()
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return d, price
 
 
 def _looks_like_no_data(msg: str) -> bool:
@@ -130,9 +158,15 @@ def frame_to_bars(frame, inst: Instrument, source: str, retrieved_at: datetime |
         raise PriceProviderError("error", f"unexpected columns {list(frame.columns)}")
     retrieved_at = retrieved_at or datetime.now(timezone.utc)
     bars: list[PriceBar] = []
-    for idx, row in frame.iterrows():
+    sess = _session_price(frame)
+    n = len(frame)
+    for i, (idx, row) in enumerate(frame.iterrows()):
         d = idx.date() if hasattr(idx, "date") else date.fromisoformat(str(idx)[:10])
         close = _num(row.get("Close"))
+        locator = f"{inst.yahoo} daily bar"
+        if (close is None or close <= 0) and i == n - 1 and sess and sess[0] == d:
+            close = sess[1]                        # B1: Yahoo's own session price for that same day
+            locator = f"{inst.yahoo} daily bar; close = Yahoo regularMarketPrice (daily close not yet finalised)"
         if close is None or close <= 0:
             continue                               # gaps are skipped, never interpolated
         bars.append(PriceBar(
@@ -140,7 +174,7 @@ def frame_to_bars(frame, inst: Instrument, source: str, retrieved_at: datetime |
             low=_num(row.get("Low")), close=close, volume=_num(row.get("Volume")),
             provenance=Provenance(source_class=SourceClass.MARKET_DATA, source_name=source,
                                   url=f"https://finance.yahoo.com/quote/{inst.yahoo}", retrieved_at=retrieved_at,
-                                  data_date=d, locator=f"{inst.yahoo} daily bar"),
+                                  data_date=d, locator=locator),
         ))
     if not bars:
         raise PriceProviderError("no_data", f"no valid closes for {inst.yahoo}")

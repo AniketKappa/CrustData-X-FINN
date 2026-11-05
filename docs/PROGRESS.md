@@ -232,6 +232,8 @@ Update this file at the end of **every** phase. Record only what is actually don
 - Live data: the build sandbox can't reach Yahoo/BSE/Screener, so the live backfill, `^CRSLDX` availability, real rank distribution and the live backtest numbers are unmeasured until deployed.
 - LLM-written explanations and Ask FINN answers (no keys in the sandbox); only the deterministic paths and the validators were tested.
 
+**Live finding (deployed at https://finn-mux5.onrender.com, 6 Nov 04:05 IST)**: every stock showed 4 Nov as the latest close. Observed cause: Yahoo's 5 Nov daily row had open/high/low/volume but a null close; the quote metadata held the session price (INFY regularMarketPrice 1167.4 at 15:28 IST). Fix: when the last row's close is null and Yahoo's regularMarketTime is the same IST day, use regularMarketPrice and label the bar's provenance; batch rows with a null last close are re-fetched singly. The 10-year backfill now starts when the first refresh is "ready" instead of after PDF reading.
+
 **Next**: deploy the Render Blueprint, check `/v1/data-status` (expect ≥ 20 symbols with 1-year history) and `/v1/backtest/latest`, then record the measured numbers here.
 
 ## Metrics (filled in as measured)

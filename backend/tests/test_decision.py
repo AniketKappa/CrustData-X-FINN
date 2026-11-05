@@ -260,3 +260,21 @@ def test_health_dedupes_by_source_and_equal_weights():
     assert h["ok"] and h["weighting"] == "equal"
     assert len(h["red_flags"]) == 1                          # one deduction per filing
     assert h["score"] == 60 - 5 - 2
+
+
+# ---------------------------------------------------------------- B1: null close on the latest Yahoo row
+def test_null_latest_close_uses_session_price():
+    import pandas as pd
+    from finn.providers.prices import frame_to_bars, last_close_missing
+    from finn.symbols import normalize
+    idx = pd.DatetimeIndex(["2026-11-04", "2026-11-05"]).tz_localize("Asia/Kolkata")
+    f = pd.DataFrame({"Open": [1140.0, 1150.0], "High": [1150.0, 1172.5], "Low": [1120.0, 1144.4],
+                      "Close": [1128.2, float("nan")], "Volume": [9e6, 10172434]}, index=idx)
+    assert last_close_missing(f)
+    assert [b.date.isoformat() for b in frame_to_bars(f, normalize("INFY"), "yfinance")] == ["2026-11-04"]
+    f.attrs["finn_meta"] = {"regularMarketPrice": 1167.4, "regularMarketTime": 1793872707}   # 5 Nov 15:28 IST
+    bars = frame_to_bars(f, normalize("INFY"), "yfinance")
+    assert bars[-1].date.isoformat() == "2026-11-05" and bars[-1].close == 1167.4
+    assert "not yet finalised" in bars[-1].provenance.locator
+    f.attrs["finn_meta"] = {"regularMarketPrice": 1200.0, "regularMarketTime": 1793959107}   # a different day
+    assert frame_to_bars(f, normalize("INFY"), "yfinance")[-1].date.isoformat() == "2026-11-04"
