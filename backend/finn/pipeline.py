@@ -118,7 +118,29 @@ class Pipeline:
             self.store.upsert_bars(r)
             self.store.log_fetch("prices", inst.key, True, items=len(r), at=self.clock())
             rep.fetched.append(inst.key)
+        self.top_up_sessions([i for i in due if i.key in rep.fetched])
         return rep
+
+    def top_up_sessions(self, insts: list) -> dict[str, str]:
+        """B1: Yahoo can return the latest daily row with a null close for hours after the session. For each
+        instrument whose newest stored bar is older than the expected session, ask once more for that day."""
+        if getattr(self.prices, "name", "") != "yfinance":
+            return {}
+        from .providers.prices import session_bar
+        want = expected_session(self.clock())
+        notes: dict[str, str] = {}
+        for inst in insts:
+            have = self.store.bars(inst.key, limit=1)
+            if have and have[-1].date >= want:
+                continue
+            after = have[-1].date if have else want - timedelta(days=7)
+            bar, note = session_bar(self.prices, inst, after)
+            if bar is not None:
+                self.store.upsert_bars([bar])
+            notes[inst.key] = note
+            self.store.log_fetch("prices_topup", inst.key, bar is not None, None if bar else note, at=self.clock())
+        self.topup_notes = {**getattr(self, "topup_notes", {}), **notes}
+        return notes
 
     # ------------------------------------------------------------ refresh: announcements
     def refresh_announcements(self, force: bool = False, backfill: bool = True,

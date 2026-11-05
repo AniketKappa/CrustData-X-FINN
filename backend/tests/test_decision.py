@@ -278,3 +278,22 @@ def test_null_latest_close_uses_session_price():
     assert "not yet finalised" in bars[-1].provenance.locator
     f.attrs["finn_meta"] = {"regularMarketPrice": 1200.0, "regularMarketTime": 1793959107}   # a different day
     assert frame_to_bars(f, normalize("INFY"), "yfinance")[-1].date.isoformat() == "2026-11-04"
+
+
+def test_session_bar_topup():
+    import pandas as pd
+    from datetime import date as _d
+    from finn.providers.prices import YFinanceProvider, session_bar
+    from finn.symbols import normalize
+    idx = pd.DatetimeIndex(["2026-11-04", "2026-11-05"]).tz_localize("Asia/Kolkata")
+    f = pd.DataFrame({"Open": [1140.0, 1150.0], "High": [1150.0, 1172.5], "Low": [1120.0, 1144.4],
+                      "Close": [1128.2, float("nan")], "Volume": [9e6, 10172434]}, index=idx)
+    meta = {"regularMarketPrice": 1167.4, "regularMarketTime": 1793872707}
+    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=lambda s, t: (f.copy(), meta))
+    assert bar.date == _d(2026, 11, 5) and bar.close == 1167.4 and note == "session price"
+    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=lambda s, t: (f.copy(), {}))
+    assert bar is None and "no session price" in note
+    def boom(s, t):
+        raise RuntimeError("Too Many Requests")
+    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=boom)
+    assert bar is None and note.startswith("error")

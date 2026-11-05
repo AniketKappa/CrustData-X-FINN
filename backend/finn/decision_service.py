@@ -17,6 +17,7 @@ from .classify import classify
 from .decision import (REFUSAL, StockInputs, backtest, clean, fallback_explanation, flag_for, has_forbidden,
                        HealthInputs, numbers_in, portfolio_health, rank_payload, score_universe,
                        validate_explanation, RANK_CAVEAT)
+from .market import expected_session
 from .models import Instrument
 from .providers.prices import PriceProviderError
 from .symbols import SymbolError, normalize
@@ -102,6 +103,11 @@ class DecisionService:
                 self.p.store.upsert_bars(r)
                 self.p.store.log_fetch("history", i.key, True, items=len(r))
                 st["fetched"] += 1
+            ok = [i for i in insts if i.key not in st["failed"]]
+            try:
+                self.p.top_up_sessions(ok)
+            except Exception as e:  # noqa: BLE001 - the top-up is a refinement; history stands without it
+                st["topup_error"] = f"{e.__class__.__name__}: {e}"
             self._rank_cache = self._bt_cache = None
             st.update(done=True)
             return dict(st)
@@ -134,7 +140,9 @@ class DecisionService:
             age = (today - date.fromisoformat(st["last"])).days if st["last"] else None
             rows.append({"symbol": s, **st, "age_days": age, "stale": age is None or age > 4})
         ok = sum(1 for r in rows if r["bars"] >= 273)
-        return {"backfill": dict(self.backfill_state), "symbols": rows, "with_1y_history": ok, "total": len(rows),
+        return {"backfill": dict(self.backfill_state), "symbols": rows,
+                "expected_session": expected_session(self.p.clock()).isoformat(),
+                "latest_session_topup": getattr(self.p, "topup_notes", {}), "with_1y_history": ok, "total": len(rows),
                 "filings_since": (e.isoformat() if (e := self.p.store.earliest_announcement()) else None)}
 
     # ------------------------------------------------------------ rank

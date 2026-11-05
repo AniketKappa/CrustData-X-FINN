@@ -85,6 +85,43 @@ class YFinanceProvider:
         return frame_to_bars(frame, inst, source="yfinance")
 
 
+def _yf_quote_frame(yahoo_symbol: str, timeout: float):
+    """Last 5 daily rows plus Yahoo's quote metadata (the request shape verified to carry regularMarketPrice)."""
+    import yfinance as yf
+
+    t = yf.Ticker(yahoo_symbol)
+    frame = t.history(period="5d", interval="1d", auto_adjust=False, actions=False, timeout=timeout)
+    meta = {}
+    try:
+        meta = dict(t.history_metadata or {})
+    except Exception:  # noqa: BLE001
+        pass
+    return frame, meta
+
+
+def session_bar(provider: "YFinanceProvider", inst: Instrument, after: date,
+                quote=_yf_quote_frame) -> tuple["PriceBar | None", str]:
+    """Top-up for B1: returns (bar, note) for the latest session after `after` when the normal fetch lacked it.
+    Uses the daily row's close if Yahoo has finalised it, else Yahoo's regularMarketPrice for the same IST day."""
+    try:
+        frame, meta = quote(inst.yahoo, provider._timeout)
+    except Exception as e:  # noqa: BLE001
+        return None, f"error: {(str(e) or e.__class__.__name__)[:120]}"
+    if frame is None or getattr(frame, "empty", True):
+        return None, "no rows"
+    frame.attrs["finn_meta"] = meta
+    try:
+        bars = frame_to_bars(frame, inst, source="yfinance")
+    except PriceProviderError as e:
+        return None, e.kind
+    last = bars[-1]
+    if last.date <= after:
+        sess = _session_price(frame)
+        return None, (f"Yahoo has no bar after {after} (quote time {sess[0]})" if sess else
+                      f"Yahoo has no bar after {after} and no session price")
+    return last, ("session price" if "not yet finalised" in (last.provenance.locator or "") else "daily close")
+
+
 def _yf_download(yahoo_symbols: list[str], days: int, timeout: float):
     import yfinance as yf
 
