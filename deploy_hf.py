@@ -51,6 +51,13 @@ def main() -> int:
     print(f"Uploading to https://huggingface.co/spaces/{repo} ...")
     api.upload_folder(repo_id=repo, repo_type="space", folder_path=str(ROOT), ignore_patterns=IGNORE,
                       commit_message="Deploy FINN")
+    # A Docker Space reads its settings from the README's YAML header; the GitHub README has none, so add it here.
+    header = ("---\ntitle: FINN\nemoji: 📈\ncolorFrom: blue\ncolorTo: gray\nsdk: docker\napp_port: 7860\n"
+              "pinned: false\n---\n\n")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    if not readme.startswith("---"):
+        api.upload_file(path_or_fileobj=(header + readme).encode("utf-8"), path_in_repo="README.md", repo_id=repo,
+                        repo_type="space", commit_message="Space settings")
     for k in SECRETS:
         if env.get(k):
             api.add_space_secret(repo, k, env[k])
