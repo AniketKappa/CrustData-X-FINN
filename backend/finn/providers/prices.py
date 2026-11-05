@@ -99,8 +99,32 @@ def _yf_quote_frame(yahoo_symbol: str, timeout: float):
     return frame, meta
 
 
+UA = "FINN-research-prototype/0.1 (personal, non-commercial)"
+
+
+def _yahoo_chart_quote(yahoo_symbol: str, timeout: float):
+    """Yahoo's public chart endpoint (the one yfinance itself calls), read directly: 5 daily rows + quote meta.
+    Observed 6 Nov 2026: it carries regularMarketPrice for a day whose daily close is still null, while the
+    yfinance call from the server returned neither. Falls back to yfinance on any failure."""
+    import httpx
+    import pandas as pd
+
+    try:
+        r = httpx.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}",
+                      params={"range": "5d", "interval": "1d"}, headers={"User-Agent": UA}, timeout=timeout)
+        r.raise_for_status()
+        res = r.json()["chart"]["result"][0]
+        q = res["indicators"]["quote"][0]
+        idx = pd.to_datetime(res["timestamp"], unit="s", utc=True).tz_convert("Asia/Kolkata").normalize()
+        frame = pd.DataFrame({"Open": q.get("open"), "High": q.get("high"), "Low": q.get("low"),
+                              "Close": q.get("close"), "Volume": q.get("volume")}, index=idx).astype(float)
+        return frame, dict(res.get("meta") or {})
+    except Exception:  # noqa: BLE001
+        return _yf_quote_frame(yahoo_symbol, timeout)
+
+
 def session_bar(provider: "YFinanceProvider", inst: Instrument, after: date,
-                quote=_yf_quote_frame) -> tuple["PriceBar | None", str]:
+                quote=_yahoo_chart_quote) -> tuple["PriceBar | None", str]:
     """Top-up for B1: returns (bar, note) for the latest session after `after` when the normal fetch lacked it.
     Uses the daily row's close if Yahoo has finalised it, else Yahoo's regularMarketPrice for the same IST day."""
     try:

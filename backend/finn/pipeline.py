@@ -134,6 +134,9 @@ class Pipeline:
             if have and have[-1].date >= want:
                 continue
             after = have[-1].date if have else want - timedelta(days=7)
+            if notes:
+                import time as _time
+                _time.sleep(0.3)                 # politeness: spaced requests to Yahoo
             bar, note = session_bar(self.prices, inst, after)
             if bar is not None:
                 self.store.upsert_bars([bar])
