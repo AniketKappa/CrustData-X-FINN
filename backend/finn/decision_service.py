@@ -10,6 +10,7 @@ import json
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -67,6 +68,8 @@ class DecisionService:
         self._rank_cache: Optional[tuple[str, dict]] = None
         self._bt_cache: Optional[tuple[str, dict]] = None
         self._why: dict[str, dict] = {}
+        self._pool = ThreadPoolExecutor(max_workers=3)
+        self._pending: dict = {}
 
     # ------------------------------------------------------------ history
     def universe(self) -> list[str]:
@@ -268,7 +271,28 @@ class DecisionService:
         return {"symbol": symbol, "date": d.isoformat(), "close": round(close, 2), "prev_close": round(prev, 2),
                 "pct": r2(pct), "vm": r2(vm), "chg5": r2(chg5), "nifty_pct": r2(nifty), "sources": srcs[:8]}
 
-    def why(self, symbol: str, on: Optional[date] = None, use_llm: bool = True) -> dict:
+    def why(self, symbol: str, on: Optional[date] = None, use_llm: bool = True, wait: float = 20.0) -> dict:
+        """At most `wait` seconds for the model (free quotas queue after a restart); then the rule-based text,
+        while the model's version keeps being written in the background and is served on the next request."""
+        if not use_llm:
+            return self._why_impl(symbol, on, False)
+        k = (symbol.upper(), on)
+        fut = self._pending.get(k)
+        if fut is None:
+            fut = self._pool.submit(self._why_impl, symbol, on, True)
+            self._pending[k] = fut
+        try:
+            res = fut.result(timeout=wait)
+        except FuturesTimeout:
+            res = self._why_impl(symbol, on, False)
+            return {**res, "pending": True}
+        except Exception:  # noqa: BLE001
+            self._pending.pop(k, None)
+            return self._why_impl(symbol, on, False)
+        self._pending.pop(k, None)
+        return res
+
+    def _why_impl(self, symbol: str, on: Optional[date] = None, use_llm: bool = True) -> dict:
         sym = symbol.upper()
         inp = self._move_inputs(sym, on)
         if inp is None:
@@ -378,7 +402,20 @@ class DecisionService:
         cat += [{"id": n.uid, "label": f"{n.publisher}: {n.headline[:70]}", "url": n.url} for n in nws]
         return out, cat
 
-    def ask(self, question: str, symbol: Optional[str] = None) -> dict:
+    def ask(self, question: str, symbol: Optional[str] = None, wait: float = 40.0) -> dict:
+        fut = self._pool.submit(self._ask_impl, question, symbol)
+        try:
+            return fut.result(timeout=wait)
+        except FuturesTimeout:
+            sym = (symbol or "").upper() or self._symbol_in(question or "")
+            if sym and sym in self.universe():
+                res = self._deterministic_answer(sym)
+                res["llm_note"] = "The free AI quota is busy; this summary is from FINN's data without AI."
+                return res
+            return {"ok": False, "symbol": sym, "headline": "The free AI quota is busy. Try again in a minute.",
+                    "method": "rule"}
+
+    def _ask_impl(self, question: str, symbol: Optional[str] = None) -> dict:
         q = (question or "").strip()
         sym = (symbol or "").upper() or self._symbol_in(q)
         if _PROB.search(q):

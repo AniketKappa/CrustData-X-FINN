@@ -55,6 +55,7 @@ function whyBlock(w) {
   const src = cited.length ? cited : (w.sources || []);   // rule-based text: list what FINN found around the move
   return `<p>${esc(w.summary)}</p>
     <p class="note">${esc(w.confidence_note)}${w.method === "llm" ? " · written by AI from the listed sources, numbers checked" : " · rule-based"}</p>
+    ${w.pending ? `<p class="note">The AI explanation is still being written (the free model quota is queued). <button type="button" class="btn ghost" data-act="why-move" data-symbol="${esc(w.symbol)}">Check again</button></p>` : ""}
     ${src.length ? `<ul class="srcs">${src.map((s) => `<li><a href="${esc(s.url || "#")}" target="_blank" rel="noopener">${esc(s.text)}</a> <span class="note">${esc(s.type)}</span></li>`).join("")}</ul>` : ""}`;
 }
 

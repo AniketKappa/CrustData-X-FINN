@@ -90,7 +90,7 @@ const sigState = (sym) => { if (!LIVE.sig.has(sym)) LIVE.sig.set(sym, {}); retur
 async function loadWhy(sym) {
   const st = sigState(sym);
   if (st.whyLoading) return;
-  st.whyLoading = true; renderKeep();
+  st.whyLoading = true; st.why = null; renderKeep();
   try { st.why = await getMove(sym); } catch (e) { st.why = { ok: false, reason: `Couldn't explain the move: ${e.message}` }; }
   st.whyLoading = false; renderKeep();
 }
