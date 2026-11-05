@@ -289,10 +289,14 @@ def test_session_bar_topup():
     f = pd.DataFrame({"Open": [1140.0, 1150.0], "High": [1150.0, 1172.5], "Low": [1120.0, 1144.4],
                       "Close": [1128.2, float("nan")], "Volume": [9e6, 10172434]}, index=idx)
     meta = {"regularMarketPrice": 1167.4, "regularMarketTime": 1793872707}
-    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=lambda s, t: (f.copy(), meta))
-    assert bar.date == _d(2026, 11, 5) and bar.close == 1167.4 and note == "session price"
-    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=lambda s, t: (f.copy(), {}))
-    assert bar is None and "no session price" in note
+    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=lambda s, t: (f.copy(), dict(meta)))
+    assert bar.date == _d(2026, 11, 5) and bar.close == 1167.4 and note.startswith("session price")
+    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=lambda s, t: (f.copy(), {}),
+                            info=lambda s: {})
+    assert bar is None and "session price absent" in note
+    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=lambda s, t: (f.copy(), {}),
+                            info=lambda s: dict(meta))
+    assert bar.close == 1167.4 and "quote summary" in note
     def boom(s, t):
         raise RuntimeError("Too Many Requests")
     bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=boom)

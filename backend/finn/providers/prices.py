@@ -104,8 +104,8 @@ UA = "FINN-research-prototype/0.1 (personal, non-commercial)"
 
 def _yahoo_chart_quote(yahoo_symbol: str, timeout: float):
     """Yahoo's public chart endpoint (the one yfinance itself calls), read directly: 5 daily rows + quote meta.
-    Observed 6 Nov 2026: it carries regularMarketPrice for a day whose daily close is still null, while the
-    yfinance call from the server returned neither. Falls back to yfinance on any failure."""
+    Observed 6 Nov 2026: it carries regularMarketPrice for a day whose daily close is still null. Falls back to
+    yfinance on any failure; the route taken is recorded in meta['_route'] for /v1/data-status."""
     import httpx
     import pandas as pd
 
@@ -118,32 +118,52 @@ def _yahoo_chart_quote(yahoo_symbol: str, timeout: float):
         idx = pd.to_datetime(res["timestamp"], unit="s", utc=True).tz_convert("Asia/Kolkata").normalize()
         frame = pd.DataFrame({"Open": q.get("open"), "High": q.get("high"), "Low": q.get("low"),
                               "Close": q.get("close"), "Volume": q.get("volume")}, index=idx).astype(float)
-        return frame, dict(res.get("meta") or {})
-    except Exception:  # noqa: BLE001
-        return _yf_quote_frame(yahoo_symbol, timeout)
+        return frame, {**(res.get("meta") or {}), "_route": "chart"}
+    except Exception as e:  # noqa: BLE001
+        frame, meta = _yf_quote_frame(yahoo_symbol, timeout)
+        return frame, {**meta, "_route": f"yfinance (chart failed: {(str(e) or e.__class__.__name__)[:60]})"}
+
+
+def _yf_info_price(yahoo_symbol: str) -> dict:
+    """Last resort: Yahoo's quote summary via yfinance (it handles Yahoo's cookie/crumb)."""
+    import yfinance as yf
+
+    info = yf.Ticker(yahoo_symbol).info or {}
+    return {"regularMarketPrice": info.get("regularMarketPrice") or info.get("currentPrice"),
+            "regularMarketTime": info.get("regularMarketTime")}
 
 
 def session_bar(provider: "YFinanceProvider", inst: Instrument, after: date,
-                quote=_yahoo_chart_quote) -> tuple["PriceBar | None", str]:
+                quote=_yahoo_chart_quote, info=_yf_info_price) -> tuple["PriceBar | None", str]:
     """Top-up for B1: returns (bar, note) for the latest session after `after` when the normal fetch lacked it.
     Uses the daily row's close if Yahoo has finalised it, else Yahoo's regularMarketPrice for the same IST day."""
     try:
         frame, meta = quote(inst.yahoo, provider._timeout)
     except Exception as e:  # noqa: BLE001
         return None, f"error: {(str(e) or e.__class__.__name__)[:120]}"
+    route = meta.pop("_route", "?")
     if frame is None or getattr(frame, "empty", True):
-        return None, "no rows"
+        return None, f"no rows via {route}"
     frame.attrs["finn_meta"] = meta
+    if _session_price(frame) is None and last_close_missing(frame):
+        try:
+            frame.attrs["finn_meta"] = {**meta, **{k: v for k, v in info(inst.yahoo).items() if v}}
+            route += " + quote summary"
+        except Exception as e:  # noqa: BLE001
+            route += f" + quote summary failed ({(str(e) or e.__class__.__name__)[:60]})"
     try:
         bars = frame_to_bars(frame, inst, source="yfinance")
     except PriceProviderError as e:
-        return None, e.kind
+        return None, f"{e.kind} via {route}"
     last = bars[-1]
     if last.date <= after:
+        lastrow = frame.index[-1].date() if hasattr(frame.index[-1], "date") else frame.index[-1]
         sess = _session_price(frame)
-        return None, (f"Yahoo has no bar after {after} (quote time {sess[0]})" if sess else
-                      f"Yahoo has no bar after {after} and no session price")
-    return last, ("session price" if "not yet finalised" in (last.provenance.locator or "") else "daily close")
+        return None, (f"no bar after {after} via {route}; last row {lastrow} close "
+                      f"{'missing' if last_close_missing(frame) else 'present'}; session price "
+                      f"{('for ' + str(sess[0])) if sess else 'absent'}")
+    kind = "session price" if "not yet finalised" in (last.provenance.locator or "") else "daily close"
+    return last, f"{kind} via {route}"
 
 
 def _yf_download(yahoo_symbols: list[str], days: int, timeout: float):
