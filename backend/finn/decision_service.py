@@ -307,9 +307,7 @@ class DecisionService:
         if not inp["sources"] or not use_llm or not (llm and llm.available):
             res = {**base, **fallback_explanation(sym, inp["pct"], inp["vm"])}
             if inp["sources"]:
-                res["summary"] = (f"{sym} moved {inp['pct']:+.1f}%" + (f" on {inp['vm']:.1f}× normal volume"
-                                  if inp["vm"] else "") + ". FINN found filings or news from around the move "
-                                  "(listed below) but hasn't checked whether they explain it.")
+                res["summary"] = self._found_text(sym, inp)
             if use_llm or not inp["sources"]:
                 self._why[key] = res
             return res
@@ -333,8 +331,15 @@ class DecisionService:
                 return res
         res = {**base, **fallback_explanation(sym, inp["pct"], inp["vm"]), "rejected": errs[:3],
                "llm_error": getattr(llm, "last_error", None)}
+        res["summary"] = self._found_text(sym, inp)
         self._why[key] = res
         return res
+
+    @staticmethod
+    def _found_text(sym: str, inp: dict) -> str:
+        return (f"{sym} moved {inp['pct']:+.1f}%" + (f" on {inp['vm']:.1f}× normal volume" if inp["vm"] else "")
+                + (". FINN found filings or news from around the move (listed below) but couldn't confirm that "
+                   "they explain it." if inp["sources"] else ". No filing or news in FINN explains it yet."))
 
     def why_quick(self, symbol: str, on: Optional[date] = None) -> dict:
         """For the digest: a cached LLM explanation if one exists, otherwise the deterministic text (no LLM call)."""
