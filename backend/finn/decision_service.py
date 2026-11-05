@@ -40,7 +40,10 @@ WHY_SYSTEM = ("You explain stock price moves for Indian investors. Use ONLY the 
 ASK_SYSTEM = ("You are FINN's research assistant. You help the user think through a decision; the decision is "
               "theirs. Rules: use ONLY the TOOL OUTPUTS below; never invent numbers, events, targets or "
               "probabilities. FINN Rank is an experimental ranking vs FINN's tracked stocks, never a probability or "
-              "prediction. Cite every factual point with an id from TOOL OUTPUTS. Mention red flags first if any. "
+              "prediction. Cite every factual point with an id from TOOL OUTPUTS, in the citations list only (never write "
+              "ids inside the text). \"flags\" lists only items from TOOL OUTPUTS.flags (empty list if there are none). "
+              "\"for\" and \"against\" each give 1-3 points from the rank grades, price and filings. Media "
+              "headlines are reports: say 'reported'. "
               "Output JSON only: {\"headline\": str (<=20 words), \"for\": [str], \"against\": [str], "
               "\"flags\": [str], \"what_to_watch\": [str], \"bottom_line\": str (must start with \"Decision is "
               "yours.\"), \"citations\": [{\"id\": str, \"label\": str}]}")
@@ -399,6 +402,8 @@ class DecisionService:
                 if ok:
                     labels = {c["id"]: c for c in cat}
                     obj["citations"] = [labels[c["id"]] for c in obj.get("citations", []) if c.get("id") in labels]
+                    if not outs.get("flags"):
+                        obj["flags"] = []          # flags come from FINN's filing rules only, never from the model
                     return clean({**obj, "ok": True, "symbol": sym, "method": "llm", "caveat": RANK_CAVEAT})
                 prompt += f"\n\nYour previous answer was rejected: {why}"
             res = self._deterministic_answer(sym, outs, cat)

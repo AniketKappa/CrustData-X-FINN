@@ -234,6 +234,15 @@ Update this file at the end of **every** phase. Record only what is actually don
 
 **Live finding (deployed at https://finn-mux5.onrender.com, 6 Nov 04:05 IST)**: every stock showed 4 Nov as the latest close. Observed cause: Yahoo's 5 Nov daily row had open/high/low/volume but a null close; the quote metadata held the session price (INFY regularMarketPrice 1167.4 at 15:28 IST). Fix: when the last row's close is null and Yahoo's regularMarketTime is the same IST day, use regularMarketPrice and label the bar's provenance; batch rows with a null last close are re-fetched singly. The 10-year backfill now starts when the first refresh is "ready" instead of after PDF reading. **Follow-up (observed 6 Nov 04:30 IST):** from Render, yfinance returns the 5 Nov row with a null close and no quote metadata, and Yahoo answers a direct chart request with HTTP 429. FINN therefore does not fill the close (no invented or worked-around data): it keeps the previous close, shows a disclosure ("Yahoo hasn't published the 05 Nov closing price yet…") and re-asks at most once an hour per stock; `/v1/data-status` → `latest_session_topup` shows the route and result per symbol.
 
+**Live verification (Render, 6 Nov 04:40–05:00 IST, measured)**
+- Backfill: 26/26 series (24 stocks + Nifty 50 + Nifty 500), 2,461–2,471 daily bars each (ETERNAL 1,307, POLYCAB 1,867, PAYTM 1,227 since listing), ~50 s; `with_1y_history` 26.
+- Rank: 24/24 ranked; spread 1–10. Backtest: 106 months (Dec 2017–Sep 2026); top third CAGR 20.9% (vol 19.1%, max drawdown −21.6%), bottom third 20.9% (vol 28.2%, −50.4%), equal weight 19.3%, Nifty 50 9.3%; mean rank IC 0.017; top beat Nifty in 57.5% of months. Survivorship bias explains much of the gap to Nifty. Not flagged implausible.
+- Flags: 3 (ASTRAL GST order: red; YESBANK Supreme Court AT-1 judgment: amber; POLYCAB CIRP update: info via the negation guard). Coverage since 29 Oct 2026.
+- Portfolio health 40/100 (base 48.3; −2 amber flag, −6 weak momentum).
+- "Why did it move" (SUZLON) and Ask FINN (Vedanta) returned validated LLM answers with cited ids; the probability question was refused by rule.
+- Groq answered HTTP 404 for `llama-3.1-8b-instant` and `llama-3.3-70b-versatile`; both removed from the routes.
+- Known limitation: prices are unadjusted closes; corporate actions such as demergers (e.g. VEDL) distort momentum and 1-year change.
+
 **Next**: deploy the Render Blueprint, check `/v1/data-status` (expect ≥ 20 symbols with 1-year history) and `/v1/backtest/latest`, then record the measured numbers here.
 
 ## Metrics (filled in as measured)
