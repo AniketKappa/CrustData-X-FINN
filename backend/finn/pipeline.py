@@ -129,10 +129,16 @@ class Pipeline:
         from .providers.prices import session_bar
         want = expected_session(self.clock())
         notes: dict[str, str] = {}
+        tried = getattr(self, "_topup_tried", {})
+        self._topup_tried = tried
+        now_ts = self.clock().timestamp()
         for inst in insts:
             have = self.store.bars(inst.key, limit=1)
             if have and have[-1].date >= want:
                 continue
+            if now_ts - tried.get((inst.key, want), 0) < 3600:      # at most one extra Yahoo ask per hour
+                continue
+            tried[(inst.key, want)] = now_ts
             after = have[-1].date if have else want - timedelta(days=7)
             if notes:
                 import time as _time
@@ -719,6 +725,12 @@ class Pipeline:
             d.append("Prices are end-of-day from Yahoo Finance via yfinance (unofficial); they may be delayed or "
                      "revised and are not real-time.")
         d.append("Exchange holidays are not yet applied: on a market holiday, prices may be flagged stale.")
+        pending = sorted(k.split(":")[-1] for k, v in getattr(self, "topup_notes", {}).items() if "close missing" in v)
+        if pending:
+            want = expected_session(self.clock())
+            d.append(f"Yahoo hasn't published the {want:%d %b} closing price yet for {len(pending)} stock"
+                     f"{'s' if len(pending) != 1 else ''} ({', '.join(pending[:6])}{'…' if len(pending) > 6 else ''}); "
+                     "FINN shows the previous close until it does and checks again hourly.")
         by = {}
         for s in signals:
             by.setdefault(s.availability, []).append(s.symbol)

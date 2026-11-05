@@ -133,8 +133,15 @@ def _yf_info_price(yahoo_symbol: str) -> dict:
             "regularMarketTime": info.get("regularMarketTime")}
 
 
+def _yf_quote(yahoo_symbol: str, timeout: float):
+    frame, meta = _yf_quote_frame(yahoo_symbol, timeout)
+    return frame, {**meta, "_route": "yfinance"}
+
+
+# The direct chart call is NOT the default: from Render, Yahoo answered it with HTTP 429 (6 Nov 2026), and FINN
+# never works around rate limits (CLAUDE.md). yfinance + the quote summary are used instead.
 def session_bar(provider: "YFinanceProvider", inst: Instrument, after: date,
-                quote=_yahoo_chart_quote, info=_yf_info_price) -> tuple["PriceBar | None", str]:
+                quote=_yf_quote, info=_yf_info_price) -> tuple["PriceBar | None", str]:
     """Top-up for B1: returns (bar, note) for the latest session after `after` when the normal fetch lacked it.
     Uses the daily row's close if Yahoo has finalised it, else Yahoo's regularMarketPrice for the same IST day."""
     try:
