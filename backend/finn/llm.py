@@ -3,7 +3,8 @@
 Two routes, each an ordered list of slots (provider + model). A slot is skipped when its key is missing,
 when it is over its own per-minute token budget, or when it fails (429/5xx/timeout); the next slot is tried.
 
-  fast  (bulk extraction: guidance statements)   groq gpt-oss-20b -> groq llama-3.1-8b-instant -> openrouter free
+  fast  (bulk extraction: guidance statements)   groq gpt-oss-20b -> groq gpt-oss-120b -> openrouter free
+        (llama-3.1-8b-instant answered HTTP 404 from Groq on 6 Nov 2026 and was removed)
   long  (reasoning: cited synthesis, answers)    groq gpt-oss-120b -> groq llama-3.3-70b-versatile -> openrouter free
 
 Groq free plan, per model (console.groq.com/docs/rate-limits, as reported Aug–Sep 2026): gpt-oss-120b and
@@ -33,8 +34,9 @@ PROVIDERS = {
     "openrouter": ("OPENROUTER_API_KEY", "https://openrouter.ai/api/v1"),
 }
 ROUTES: dict[str, list[tuple[str, str]]] = {
-    "fast": [("groq", "openai/gpt-oss-20b"), ("groq", "llama-3.1-8b-instant"), ("openrouter", "openrouter/free")],
-    "long": [("groq", "openai/gpt-oss-120b"), ("groq", "llama-3.3-70b-versatile"), ("openrouter", "openrouter/free")],
+    "fast": [("groq", "openai/gpt-oss-20b"), ("groq", "openai/gpt-oss-120b"), ("openrouter", "openrouter/free")],
+    "long": [("groq", "openai/gpt-oss-120b"), ("groq", "openai/gpt-oss-20b"), ("groq", "llama-3.3-70b-versatile"),
+             ("openrouter", "openrouter/free")],
 }
 TPM = {"openai/gpt-oss-20b": 8000, "openai/gpt-oss-120b": 8000, "llama-3.3-70b-versatile": 12000,
        "llama-3.1-8b-instant": 6000, "openrouter/free": 100000}
