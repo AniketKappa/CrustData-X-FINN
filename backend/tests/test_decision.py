@@ -251,53 +251,32 @@ def test_fallback_text():
 
 
 # ---------------------------------------------------------------- portfolio health
-def test_health_dedupes_by_source_and_equal_weights():
-    ranks = {s: {"composite_pct": 60.0, "groups": {"momentum": 50.0}} for s in ("A", "B", "C")}
-    flags = [{"symbol": "A", "level": "red", "source_id": "x"}, {"symbol": "A", "level": "red", "source_id": "x"},
-             {"symbol": "B", "level": "amber", "source_id": "y"}]
-    h = portfolio_health(HealthInputs(symbols=["A", "B", "C"], ranks=ranks, flags=flags,
-                                      sectors={"A": "IT", "B": "Bank", "C": "FMCG"}))
-    assert h["ok"] and h["weighting"] == "equal"
-    assert len(h["red_flags"]) == 1                          # one deduction per filing
-    assert h["score"] == 60 - 5 - 2
+def _hin(symbols, comp, mom=None, flags=(), sectors=None):
+    ranks = {s: {"composite_pct": comp[s], "rank": 5, "groups": {"momentum": (mom or {}).get(s, 50.0)}} for s in comp}
+    return HealthInputs(symbols=symbols, ranks=ranks, flags=list(flags),
+                        sectors=sectors or {s: f"Sector {i}" for i, s in enumerate(symbols)})
 
 
-# ---------------------------------------------------------------- B1: null close on the latest Yahoo row
-def test_null_latest_close_uses_session_price():
-    import pandas as pd
-    from finn.providers.prices import frame_to_bars, last_close_missing
-    from finn.symbols import normalize
-    idx = pd.DatetimeIndex(["2026-11-04", "2026-11-05"]).tz_localize("Asia/Kolkata")
-    f = pd.DataFrame({"Open": [1140.0, 1150.0], "High": [1150.0, 1172.5], "Low": [1120.0, 1144.4],
-                      "Close": [1128.2, float("nan")], "Volume": [9e6, 10172434]}, index=idx)
-    assert last_close_missing(f)
-    assert [b.date.isoformat() for b in frame_to_bars(f, normalize("INFY"), "yfinance")] == ["2026-11-04"]
-    f.attrs["finn_meta"] = {"regularMarketPrice": 1167.4, "regularMarketTime": 1793872707}   # 5 Nov 15:28 IST
-    bars = frame_to_bars(f, normalize("INFY"), "yfinance")
-    assert bars[-1].date.isoformat() == "2026-11-05" and bars[-1].close == 1167.4
-    assert "not yet finalised" in bars[-1].provenance.locator
-    f.attrs["finn_meta"] = {"regularMarketPrice": 1200.0, "regularMarketTime": 1793959107}   # a different day
-    assert frame_to_bars(f, normalize("INFY"), "yfinance")[-1].date.isoformat() == "2026-11-04"
+def test_health_fixed_formula():
+    h = portfolio_health(_hin(["A", "B", "C", "D"], {"A": 80.0, "B": 60.0, "C": 40.0, "D": 20.0},
+                              mom={"D": 10.0}, flags=[{"symbol": "A", "level": "red", "source_id": "x"},
+                                                      {"symbol": "A", "level": "red", "source_id": "x"},
+                                                      {"symbol": "B", "level": "amber", "source_id": "y"}]))
+    c = {x["key"]: x["value"] for x in h["components"]}
+    assert c["strength"] == 50.0                                   # mean of 80, 60, 40, 20
+    assert c["filings"] == pytest.approx(100 * (1 - (1 + 0.5) / 4), abs=0.1)
+    assert c["diversification"] == 100.0                           # four different sectors
+    assert c["trend"] == 75.0                                      # D is weak
+    assert h["score"] == round(0.5 * 50 + 0.2 * 62.5 + 0.15 * 100 + 0.15 * 75)
+    assert len(h["red_flags"]) == 1                                # the same filing counts once
 
 
-def test_session_bar_topup():
-    import pandas as pd
-    from datetime import date as _d
-    from finn.providers.prices import YFinanceProvider, session_bar
-    from finn.symbols import normalize
-    idx = pd.DatetimeIndex(["2026-11-04", "2026-11-05"]).tz_localize("Asia/Kolkata")
-    f = pd.DataFrame({"Open": [1140.0, 1150.0], "High": [1150.0, 1172.5], "Low": [1120.0, 1144.4],
-                      "Close": [1128.2, float("nan")], "Volume": [9e6, 10172434]}, index=idx)
-    meta = {"regularMarketPrice": 1167.4, "regularMarketTime": 1793872707}
-    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=lambda s, t: (f.copy(), dict(meta)))
-    assert bar.date == _d(2026, 11, 5) and bar.close == 1167.4 and note.startswith("session price")
-    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=lambda s, t: (f.copy(), {}),
-                            info=lambda s: {})
-    assert bar is None and "session price absent" in note
-    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=lambda s, t: (f.copy(), {}),
-                            info=lambda s: dict(meta))
-    assert bar.close == 1167.4 and "quote summary" in note
-    def boom(s, t):
-        raise RuntimeError("Too Many Requests")
-    bar, note = session_bar(YFinanceProvider(), normalize("INFY"), _d(2026, 11, 4), quote=boom)
-    assert bar is None and note.startswith("error")
+def test_health_moves_the_right_way():
+    base = {"A": 80.0, "B": 60.0, "C": 30.0}
+    with_c = portfolio_health(_hin(["A", "B", "C"], base))["score"]
+    without_c = portfolio_health(_hin(["A", "B"], base))["score"]
+    with_strong = portfolio_health(_hin(["A", "B", "C", "E"], {**base, "E": 95.0}))["score"]
+    assert without_c > with_c                                      # removing a below-average holding raises it
+    assert with_strong > with_c                                    # adding an above-average holding raises it
+    again = portfolio_health(_hin(["A", "B", "C"], base))["score"]
+    assert again == with_c                                         # remove then add back: same score

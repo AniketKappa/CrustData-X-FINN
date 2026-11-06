@@ -607,57 +607,88 @@ class HealthInputs:
     stale: list[str] = field(default_factory=list)
 
 
+HEALTH_WEIGHTS = {"strength": 0.50, "filings": 0.20, "diversification": 0.15, "trend": 0.15}
+HEALTH_FORMULA = ("Health = 50% Stock strength + 20% Filing risk + 15% Diversification + 15% Trend breadth, each "
+                  "scored 0–100 over your current holdings, every holding weighted equally.")
+
+
 def portfolio_health(h: HealthInputs) -> dict:
-    """FINN stores no quantities, so every holding has equal weight. Every deduction is listed."""
-    n = len(h.symbols)
+    """One fixed formula over the CURRENT holdings (equal weights: FINN stores no quantities).
+
+    Stock strength   = average FINN Rank composite percentile of the ranked holdings.
+    Filing risk      = 100 x (1 - (holdings with a red flag + 0.5 x holdings with only amber flags) / holdings).
+    Diversification  = 100 x (1 - HHI) / (1 - 1/N), HHI = sum of squared sector shares (N = holdings).
+    Trend breadth    = share of ranked holdings whose momentum percentile is 40 or more (not a weak trend).
+    Percentiles are against FINN's fixed reference set of stocks, so removing a below-average holding raises
+    Stock strength and adding an above-average one raises it; nothing else moves."""
+    syms = list(h.symbols)
+    n = len(syms)
     if n == 0:
         return {"ok": False, "reason": "no holdings"}
-    comps = [h.ranks[s]["composite_pct"] for s in h.symbols if h.ranks.get(s, {}).get("composite_pct") is not None]
-    base = sum(comps) / len(comps) if comps else 50.0
+    ranked = [s for s in syms if h.ranks.get(s, {}).get("composite_pct") is not None]
+    pending = [s for s in syms if s not in ranked]
+    strength = sum(h.ranks[s]["composite_pct"] for s in ranked) / len(ranked) if ranked else None
+
     seen: dict[str, dict] = {}
     for f in h.flags:
-        if f["symbol"] in h.symbols:
-            seen.setdefault(f["source_id"], f)           # one deduction per filing
-    red = [f for f in seen.values() if f["level"] == "red"]
-    amber = [f for f in seen.values() if f["level"] == "amber"]
+        if f["symbol"] in syms:
+            seen.setdefault(f["source_id"], f)            # one filing counts once
+    red_syms = sorted({f["symbol"] for f in seen.values() if f["level"] == "red"})
+    amber_syms = sorted({f["symbol"] for f in seen.values() if f["level"] == "amber"} - set(red_syms))
+    filings = 100.0 * max(0.0, 1 - (len(red_syms) + 0.5 * len(amber_syms)) / n)
+
     sec: dict[str, int] = {}
-    for s in h.symbols:
-        sec[h.sectors.get(s) or "Unknown"] = sec.get(h.sectors.get(s) or "Unknown", 0) + 1
-    top_sector, top_n = max(sec.items(), key=lambda kv: kv[1])
-    weak_mom = [s for s in h.symbols if (h.ranks.get(s, {}).get("groups", {}).get("momentum") or 100) < 20]
-    deductions = []
-    fl_items = lambda fs: [{"symbol": f["symbol"], "text": f.get("evidence", ""), "url": f.get("url"),  # noqa: E731
-                            "type": f.get("flag_type", "").replace("_", " "), "date": (f.get("filed_at") or "")[:10]}
-                           for f in fs]
-    if red:
-        deductions.append({"reason": f"{len(red)} red flag{'s' if len(red) != 1 else ''} in your holdings' filings "
-                                     "(defaults, regulator or court action, auditor or CEO/CFO exits, rating cuts)",
-                           "points": min(25, 5 * len(red)), "items": fl_items(red)})
-    if amber:
-        deductions.append({"reason": f"{len(amber)} amber flag{'s' if len(amber) != 1 else ''} (pledges, court "
-                                     "judgments without a clear direction, results due within 5 days)",
-                           "points": min(10, 2 * len(amber)), "items": fl_items(amber)})
-    if top_n / n > 0.4:
-        deductions.append({"reason": f"{top_n} of {n} holdings are in one sector ({top_sector})", "points": 10,
-                           "items": [{"symbol": s, "text": top_sector} for s in h.symbols
-                                     if (h.sectors.get(s) or "Unknown") == top_sector]})
-    if weak_mom:
-        deductions.append({"reason": f"{len(weak_mom)} holding{'s' if len(weak_mom) != 1 else ''} with weak momentum: "
-                                     "their price trend is in the bottom fifth (below the 20th percentile) of the "
-                                     "stocks FINN tracks, i.e. worse than 80% of them over the past year",
-                           "points": min(10, 2 * len(weak_mom)),
-                           "items": [{"symbol": s, "text": f"momentum {round(h.ranks[s]['groups']['momentum'])}th "
-                                                           "percentile"} for s in weak_mom]})
-    if h.stale:
-        deductions.append({"reason": f"{len(h.stale)} holding{'s' if len(h.stale) != 1 else ''} with stale prices "
-                                     "(score less certain; no points taken)", "points": 0,
-                           "items": [{"symbol": s, "text": "prices more than 4 days old"} for s in h.stale]})
-    score = max(0.0, min(100.0, base - sum(d["points"] for d in deductions)))
-    return clean({"ok": True, "score": round(score), "base_avg_composite_pct": round(base, 1),
-                  "deductions": deductions, "holdings": n, "ranked": len(comps), "weighting": "equal",
+    for s in syms:
+        k = h.sectors.get(s) or "Unknown"
+        sec[k] = sec.get(k, 0) + 1
+    hhi = sum((c / n) ** 2 for c in sec.values())
+    divers = 100.0 * (1 - hhi) / (1 - 1 / n) if n > 1 else 0.0
+
+    mom = {s: h.ranks[s].get("groups", {}).get("momentum") for s in ranked}
+    mom = {s: v for s, v in mom.items() if v is not None}
+    weak = sorted((s for s, v in mom.items() if v < 40), key=lambda s: mom[s])
+    trend = 100.0 * (len(mom) - len(weak)) / len(mom) if mom else None
+
+    comps = {"strength": strength, "filings": filings, "diversification": divers, "trend": trend}
+    avail = {k: v for k, v in comps.items() if v is not None}
+    wsum = sum(HEALTH_WEIGHTS[k] for k in avail)
+    score = sum(HEALTH_WEIGHTS[k] * v for k, v in avail.items()) / wsum if wsum else 0.0
+
+    def fl(level):
+        return [{"symbol": f["symbol"], "text": f.get("evidence", ""), "url": f.get("url"),
+                 "type": f.get("flag_type", "").replace("_", " "), "date": (f.get("filed_at") or "")[:10]}
+                for f in seen.values() if f["level"] == level]
+
+    r1 = lambda v: None if v is None else round(v, 1)  # noqa: E731
+    components = [
+        {"key": "strength", "label": "Stock strength", "weight": 50, "value": r1(strength),
+         "how": f"Average FINN Rank percentile of your {len(ranked)} ranked holding{'s' if len(ranked) != 1 else ''}"
+                + (f" ({len(pending)} still loading history: {', '.join(pending[:5])})" if pending else ""),
+         "items": [{"symbol": s, "text": f"FINN Rank {h.ranks[s]['rank']}/10 · {round(h.ranks[s]['composite_pct'])}th "
+                                         "percentile"} for s in sorted(ranked, key=lambda s: h.ranks[s]["composite_pct"])]},
+        {"key": "filings", "label": "Filing risk", "weight": 20, "value": r1(filings),
+         "how": f"100 × (1 − (holdings with a red flag {len(red_syms)} + ½ × holdings with only amber flags "
+                f"{len(amber_syms)}) ÷ {n} holdings). Red: defaults, regulator or court orders, auditor or CEO/CFO "
+                "exits, rating downgrades. Amber: pledges, court judgments without a clear direction, results due "
+                "within 5 days.",
+         "items": fl("red") + fl("amber")},
+        {"key": "diversification", "label": "Diversification", "weight": 15, "value": r1(divers),
+         "how": f"100 × (1 − concentration) ÷ (1 − 1/{n}); concentration = sum of squared sector shares "
+                f"({hhi:.2f}). 100 = every holding in a different sector.",
+         "items": [{"symbol": "", "text": f"{k}: {v} holding{'s' if v != 1 else ''}"}
+                   for k, v in sorted(sec.items(), key=lambda kv: -kv[1])[:6]]},
+        {"key": "trend", "label": "Trend breadth", "weight": 15, "value": r1(trend),
+         "how": "Share of ranked holdings whose price trend (FINN momentum percentile) is 40 or more. Weak trend = "
+                "momentum below the 40th percentile, i.e. weaker than 60% of the stocks FINN tracks.",
+         "items": [{"symbol": s, "text": f"momentum {round(mom[s])}th percentile (weak)"} for s in weak]},
+    ]
+    for c in components:
+        c["contribution"] = None if c["value"] is None else round(HEALTH_WEIGHTS[c["key"]] * c["value"] / wsum, 1)
+    return clean({"ok": True, "score": round(score), "formula": HEALTH_FORMULA, "components": components,
+                  "holdings": n, "ranked": len(ranked), "pending": pending, "weighting": "equal",
                   "sectors": dict(sorted(sec.items(), key=lambda kv: -kv[1])),
-                  "red_flags": red, "amber_flags": amber,
-                  "note": "Equal-weighted: FINN doesn't know how much of each stock you hold.",
+                  "red_flags": fl("red"), "amber_flags": fl("amber"),
+                  "note": "Every holding counts equally: FINN doesn't know how much of each stock you hold.",
                   "caveat": RANK_CAVEAT})
 
 

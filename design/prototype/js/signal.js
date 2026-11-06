@@ -95,15 +95,16 @@ function askBlock(sym, st) {
 export function healthCard(h) {
   if (!h) return `<div class="card empty-card" role="status">Checking portfolio health…</div>`;
   if (!h.ok) return "";
-  const ded = h.deductions.map((d) => `<li class="ded"><div class="ded-top"><span>${esc(d.reason)}</span><span class="n">${d.points ? `−${d.points}` : "note"}</span></div>
-    ${d.items?.length ? `<ul class="ded-items">${d.items.map((x) => `<li><a href="#/company/${encodeURIComponent(x.symbol)}/overview"><b>${esc(x.symbol)}</b></a>
-      ${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.text)}</a>` : esc(x.text)}${x.date ? ` <span class="note">${esc(x.type)} · ${esc(x.date)}</span>` : ""}</li>`).join("")}</ul>` : ""}</li>`).join("");
-  const top = Object.entries(h.sectors).slice(0, 3).map(([s, n]) => `${esc(s)} ${n}`).join(" · ");
-  return `<div class="card health" style="padding:16px"><div class="sec-head" style="margin:0"><b>Portfolio health</b><span class="sec-sub">equal-weighted</span></div>
-    <div class="sig-top"><div class="rank-big">${h.score}<small>/100</small></div><div>
-      <p class="note">Starts from the average FINN Rank percentile of your ${h.ranked} ranked holdings (${h.base_avg_composite_pct}), minus the items below.</p></div></div>
-    ${ded ? `<ul class="drivers">${ded}</ul>` : `<p class="note">No deductions.</p>`}
-    <p class="note">Largest sectors: ${top}</p><p class="caption">${esc(h.note)}</p><p class="caveat">${esc(CAVEAT)}</p></div>`;
+  const item = (x) => `<li>${x.symbol ? `<a href="#/company/${encodeURIComponent(x.symbol)}/overview"><b>${esc(x.symbol)}</b></a> ` : ""}${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.text)}</a>` : esc(x.text)}${x.date ? ` <span class="note">${esc(x.type)} · ${esc(x.date)}</span>` : ""}</li>`;
+  const comps = h.components.map((c) => `<li class="ded"><div class="ded-top"><span><b>${esc(c.label)}</b> <span class="note">weight ${c.weight}%</span></span>
+      <span class="n">${c.value == null ? "no data" : `${Math.round(c.value)}/100 → ${c.contribution} pts`}</span></div>
+    <p class="note" style="margin:2px 0 0">${esc(c.how)}</p>
+    ${c.items?.length ? `<details class="fold" style="padding:0"><summary>${c.items.length} item${c.items.length === 1 ? "" : "s"}</summary><ul class="ded-items">${c.items.map(item).join("")}</ul></details>` : ""}</li>`).join("");
+  return `<div class="card health" style="padding:16px"><div class="sec-head" style="margin:0"><b>Portfolio health</b><span class="sec-sub">${h.holdings} holdings · equal-weighted</span></div>
+    <div class="sig-top"><div class="rank-big">${h.score}<small>/100</small></div><div><p class="note" style="margin:0">${esc(h.formula)}</p>
+      ${h.pending?.length ? `<p class="note" style="margin:4px 0 0">${h.pending.length} holding${h.pending.length === 1 ? " is" : "s are"} still loading price history and ${h.pending.length === 1 ? "is" : "are"} not in Stock strength yet.</p>` : ""}</div></div>
+    <ul class="drivers">${comps}</ul>
+    <p class="caption">${esc(h.note)}</p><p class="caveat">${esc(CAVEAT)}</p></div>`;
 }
 
 export function aiBriefCard(b) {

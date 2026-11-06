@@ -88,7 +88,12 @@ async function loadDecision() {
   LIVE.dsLoading = false;
 }
 // Called after holdings change: health, ranks and the morning briefing are recomputed on the next view.
-function invalidateDecision() { LIVE.dsAt = 0; LIVE.phealth = undefined; LIVE.abrief = null; LIVE.sig.clear(); }
+function invalidateDecision() {
+  LIVE.dsAt = 0; LIVE.dsLoading = false; LIVE.phealth = undefined; LIVE.abrief = null; LIVE.sig.clear();
+  loadDecision();
+  // A newly added stock's 10-year history arrives a few seconds later; recompute once it has.
+  setTimeout(() => { LIVE.dsAt = 0; LIVE.dsLoading = false; loadDecision(); }, 15000);
+}
 const sigState = (sym) => { if (!LIVE.sig.has(sym)) LIVE.sig.set(sym, {}); return LIVE.sig.get(sym); };
 async function loadWhy(sym) {
   const st = sigState(sym);
