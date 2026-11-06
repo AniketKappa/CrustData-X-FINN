@@ -21,11 +21,19 @@ async function getJSON(url, opts = {}) {
   }
 }
 
-export async function detectApi() {
+// Is this page served by the FINN backend? "none" only when the server clearly isn't there (404 / not JSON),
+// "slow" when it didn't answer in time (a free server waking up or busy after a restart): then the caller retries
+// instead of falling back to the demo data.
+export async function detectApi(timeout = 8000) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), timeout);
   try {
-    const h = await getJSON("/health", { timeout: 4000 });
-    return h && h.ok ? h : null;
-  } catch { return null; }
+    const r = await fetch("/health", { cache: "no-store", signal: ctl.signal });
+    if (r.status === 404) return { state: "none" };
+    if (!r.ok) return { state: "slow" };                 // 502/503 while the host restarts
+    const h = await r.json().catch(() => null);
+    return h && h.ok ? { state: "ok", health: h } : { state: "none" };
+  } catch { return { state: "slow" }; } finally { clearTimeout(t); }
 }
 
 export const getPortfolio = () => getJSON("/v1/portfolio");

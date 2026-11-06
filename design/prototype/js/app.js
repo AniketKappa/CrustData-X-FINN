@@ -639,7 +639,14 @@ document.addEventListener("keydown", (e) => {
 window.addEventListener("hashchange", () => { stopListening(); if (S.speaking === "brief" && !location.hash.startsWith("#/briefing")) stopSpeech(); S.editing = false; S.selected.clear(); render(); });
 
 async function boot() {
-  const h = await detectApi();
+  let h = null;
+  for (let i = 0; i < 18; i++) {                       // up to ~3 minutes: a sleeping free server can take a while
+    const d = await detectApi(i === 0 ? 8000 : 12000);
+    if (d.state === "ok") { h = d.health; break; }
+    if (d.state === "none") break;                     // no FINN server behind this page: demo data
+    $("#main").innerHTML = `<div class="card empty-card" role="status"><p><b>Connecting to FINN…</b></p><p class="note">The free server is waking up or restarting. This can take up to a minute; the page fills in by itself.</p></div>`;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
   const banner = $("#banner");
   if (h) {
     LIVE.on = true; LIVE.mode = h.mode; LIVE.health = h;
