@@ -748,3 +748,7 @@ body { font-family: var(--sans); font-size: 15px; line-height: 1.45; letter-spac
 .reasons li.lead { list-style: none; margin-left: -18px; color: var(--ink); font-weight: 500; }
 .drivers li.dg { margin-top: 8px; border-top: 1px solid var(--rule-2); font-size: var(--fs-sm); }
 .drivers .mean { display: block; color: var(--muted); font-size: var(--fs-xs); margin-top: 1px; }
+.drivers li.ded { display: block; }
+.ded-top { display: flex; justify-content: space-between; gap: 12px; }
+.ded-items { margin: 6px 0 2px; padding-left: 16px; font-size: var(--fs-xs); color: var(--ink-2); line-height: 1.5; }
+.ded-items li { border: 0 !important; padding: 2px 0 !important; display: list-item !important; }

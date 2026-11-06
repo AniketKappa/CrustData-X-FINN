@@ -95,7 +95,9 @@ function askBlock(sym, st) {
 export function healthCard(h) {
   if (!h) return `<div class="card empty-card" role="status">Checking portfolio health…</div>`;
   if (!h.ok) return "";
-  const ded = h.deductions.map((d) => `<li><span>${esc(d.reason)}</span><span class="n">${d.points ? `−${d.points}` : "note"}</span></li>`).join("");
+  const ded = h.deductions.map((d) => `<li class="ded"><div class="ded-top"><span>${esc(d.reason)}</span><span class="n">${d.points ? `−${d.points}` : "note"}</span></div>
+    ${d.items?.length ? `<ul class="ded-items">${d.items.map((x) => `<li><a href="#/company/${encodeURIComponent(x.symbol)}/overview"><b>${esc(x.symbol)}</b></a>
+      ${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.text)}</a>` : esc(x.text)}${x.date ? ` <span class="note">${esc(x.type)} · ${esc(x.date)}</span>` : ""}</li>`).join("")}</ul>` : ""}</li>`).join("");
   const top = Object.entries(h.sectors).slice(0, 3).map(([s, n]) => `${esc(s)} ${n}`).join(" · ");
   return `<div class="card health" style="padding:16px"><div class="sec-head" style="margin:0"><b>Portfolio health</b><span class="sec-sub">equal-weighted</span></div>
     <div class="sig-top"><div class="rank-big">${h.score}<small>/100</small></div><div>

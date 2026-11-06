@@ -233,6 +233,7 @@ def add_holding(req: AddRequest) -> dict:
     # the app reloads next already includes it. Anything slower carries on in the background.
     t = threading.Thread(target=lambda: _safe(lambda: pipe.refresh_symbol(c.symbol)), daemon=True)
     t.start()
+    threading.Thread(target=lambda: _safe(lambda: svc.backfill_symbols([c.symbol])), daemon=True).start()
     t.join(timeout=float(os.environ.get("FINN_ADD_WAIT_SECONDS", "20")))
     return {"added": c.model_dump(), "refreshing": t.is_alive()}
 

@@ -70,12 +70,36 @@ class DecisionService:
         self._why: dict[str, dict] = {}
         self._pool = ThreadPoolExecutor(max_workers=3)
         self._rank_lock = threading.Lock()
+        self._reference: set[str] = set(pipe.tracked())
         self._flag_cache: dict = {}
         self._pending: dict = {}
 
     # ------------------------------------------------------------ history
     def universe(self) -> list[str]:
-        return self.p.tracked()
+        """Stocks the rank is computed against: everything tracked now plus every stock tracked at start-up or added
+        since. Removing a holding keeps it in this reference set, so removing a weak stock can't lower the others'
+        percentiles (which made portfolio health move the wrong way)."""
+        now = self.p.tracked()
+        self._reference.update(now)
+        return now + sorted(self._reference - set(now))
+
+    def backfill_symbols(self, symbols: list[str], years: Optional[int] = None) -> dict:
+        """Long history for stocks added after start-up, so they get a rank straight away."""
+        years = years or int(os.environ.get("FINN_HISTORY_YEARS", "10"))
+        days = int(years * 365.25)
+        out = {}
+        with self._lock:                       # waits for a running full backfill instead of racing it
+            for s in symbols:
+                try:
+                    inst = normalize(s)
+                    bars = self.p.prices.fetch(inst, days)
+                    self.p.store.upsert_bars(bars)
+                    out[s] = len(bars)
+                except (SymbolError, PriceProviderError) as e:
+                    out[s] = f"failed: {e}"
+            self._rank_cache = self._bt_cache = None
+            self._flag_cache.clear()
+        return out
 
     def backfill(self, years: Optional[int] = None) -> dict:
         years = years or int(os.environ.get("FINN_HISTORY_YEARS", "10"))

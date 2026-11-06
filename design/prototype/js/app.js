@@ -283,6 +283,7 @@ function render() {
     const sel = selId ? v.all.find((i) => i.id === selId) : null;
     const winLabel = WINDOWS.find((w) => w.id === windowId).label;
     S.lastBriefing = { sections: v.sections.map((s) => ({ ...s, items: s.items.filter((i) => !i.older) })), routine: v.routine, winLabel };
+    S.filter = params.get("f") || "all";
     if (S.filter !== "all" && !v.sections.some((s) => s.id === S.filter)) S.filter = "all";
     const list = briefingV3({ ...v, windowId, holdings: holdingsCount(), holdingSyms: holdingSymbols(), group: S.group, brief: LIVE.on && !selId ? aiBriefCard(LIVE.abrief) : "", selectedId: selId, speaking: S.speaking === "brief", speechOk,
       routineOpen: S.routineOpen, filter: S.filter, expanded: S.expanded, busy });
@@ -445,13 +446,20 @@ main.addEventListener("pointerleave", () => { tip.hidden = true; });
 
 // ---------- dialogs ----------
 let opener = null, openedAt = 0;
+// The dialog takes one history entry, so the phone/browser Back button closes it instead of changing the page.
+let dlgByBack = false;
 function openDialog(html) {
   opener = document.activeElement; openedAt = Date.now();
   dlgBody.innerHTML = html;
-  dlg.showModal();
+  if (!dlg.open) { history.pushState({ finnDlg: true }, ""); dlg.showModal(); }
   dlg.querySelector("[autofocus], input, .dlg-close")?.focus();
 }
-dlg.addEventListener("close", () => { opener?.focus?.(); });
+dlg.addEventListener("close", () => {
+  opener?.focus?.();
+  if (!dlgByBack && history.state?.finnDlg) history.back();   // closed by ×, Save or the backdrop: drop our entry
+  dlgByBack = false;
+});
+window.addEventListener("popstate", () => { if (dlg.open) { dlgByBack = true; dlg.close(); } });
 // A tap on the backdrop closes the sheet, but not the second tap of a double-tap that opened it.
 dlg.addEventListener("click", (e) => { if (e.target === dlg && Date.now() - openedAt > 400) dlg.close(); });
 $(".dlg-close").addEventListener("click", () => dlg.close());
@@ -506,8 +514,11 @@ document.addEventListener("click", async (e) => {
   if (!t) return;
   const ds = t.dataset;
   if (ds.ev) { const ev = registry.ev.get(ds.ev); if (ev && !dlg.open) openDialog(evidenceBody(ev)); return; }
-  if (ds.window) { const { parts } = parse(); stopSpeech(); go(`#/briefing${parts[1] === "item" ? "/" + parts.slice(1).join("/") : ""}?w=${ds.window}`); return; }
-  if (ds.filter) { S.filter = ds.filter; render(); return; }
+  if (ds.window) { const { parts, params } = parse(); stopSpeech(); const f = params.get("f"); go(`#/briefing${parts[1] === "item" ? "/" + parts.slice(1).join("/") : ""}?w=${ds.window}${f ? `&f=${encodeURIComponent(f)}` : ""}`); return; }
+  if (ds.filter) {   // the filter lives in the address, so Back returns to the previous filter
+    const { params } = parse(); stopSpeech();
+    go(`#/briefing?w=${params.get("w") || "24h"}${ds.filter === "all" ? "" : `&f=${encodeURIComponent(ds.filter)}`}`); return;
+  }
   if (ds.group) { S.group = ds.group; try { localStorage.setItem("finn.group", ds.group); } catch { /* private mode */ } render(); return; }
   if (ds.more) { if (S.expanded.has(ds.more)) S.expanded.delete(ds.more); else S.expanded.add(ds.more); render(); return; }
   if (t.classList.contains("tab-more")) { const bar = t.parentElement.querySelector(".tabbar"); bar?.scrollBy({ left: bar.clientWidth * 0.7, behavior: "smooth" }); return; }

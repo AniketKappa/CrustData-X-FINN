@@ -119,12 +119,20 @@ export function briefingV3({ movers = [], sessions = 1, sections, routine, hidde
   const companies = holdingSyms ? [...touched].filter((x) => holdingSyms.has(x)).length : touched.size;
   const watchN = holdingSyms ? touched.size - companies : 0;
   const parts = sections.filter((s) => s.items.some((i) => !i.older)).map((s) => { const n = s.items.filter((i) => !i.older).length; return `${n} ${n === 1 ? s.one : s.many}`; });
+  // By company: every count is a number of companies (one card each), not of individual filings.
+  if (group === "company") {
+    const live2 = (s) => new Set(s.items.filter((i) => !i.older).map((i) => i.symbol || i.company)).size;
+    counts = Object.fromEntries(sections.map((s) => [s.id, live2(s)]));
+  }
+  const allN = group === "company" ? touched.size : total;
   const sum = total
-    ? `<b>${total} update${total === 1 ? "" : "s"}</b> across ${companies} of your ${holdings} holdings${watchN ? ` and ${watchN} watchlist stock${watchN === 1 ? "" : "s"}` : ""} · last ${esc(w.label)}`
+    ? (group === "company"
+      ? `<b>${touched.size} compan${touched.size === 1 ? "y" : "ies"}</b> with updates: ${companies} of your ${holdings} holdings${watchN ? ` and ${watchN} on your watchlist` : ""} · last ${esc(w.label)}`
+      : `<b>${total} update${total === 1 ? "" : "s"}</b> across ${companies} of your ${holdings} holdings${watchN ? ` and ${watchN} watchlist stock${watchN === 1 ? "" : "s"}` : ""} · last ${esc(w.label)}`)
     : live?.refreshing ? `Fetching prices, filings and news for your ${holdings} holdings…`
     : `A quiet ${esc(w.label)} for your ${holdings} holdings. Try 3D or 7D for the wider picture.`;
   void parts;
-  const chips = [`<button type="button" class="chip" data-filter="all" aria-pressed="${filter === "all"}">All <span class="n">${total}</span></button>`]
+  const chips = [`<button type="button" class="chip" data-filter="all" aria-pressed="${filter === "all"}">All <span class="n">${allN}</span></button>`]
     .concat(sections.map((s) => `<button type="button" class="chip${counts[s.id] ? "" : " zero"}" data-filter="${s.id}" aria-pressed="${filter === s.id}">${esc(s.short)} <span class="n">${counts[s.id]}</span></button>`)).join("");
   const seg = WINDOWS.map((x) => `<button type="button" class="seg-b" data-window="${x.id}" aria-pressed="${x.id === windowId}">${x.id.toUpperCase()}</button>`).join("");
   const shown = sections.filter((s) => (filter === "all" || filter === s.id) && s.items.length);

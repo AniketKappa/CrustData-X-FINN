@@ -626,20 +626,32 @@ def portfolio_health(h: HealthInputs) -> dict:
     top_sector, top_n = max(sec.items(), key=lambda kv: kv[1])
     weak_mom = [s for s in h.symbols if (h.ranks.get(s, {}).get("groups", {}).get("momentum") or 100) < 20]
     deductions = []
+    fl_items = lambda fs: [{"symbol": f["symbol"], "text": f.get("evidence", ""), "url": f.get("url"),  # noqa: E731
+                            "type": f.get("flag_type", "").replace("_", " "), "date": (f.get("filed_at") or "")[:10]}
+                           for f in fs]
     if red:
-        deductions.append({"reason": f"{len(red)} red flag{'s' if len(red) != 1 else ''} in holdings",
-                           "points": min(25, 5 * len(red))})
+        deductions.append({"reason": f"{len(red)} red flag{'s' if len(red) != 1 else ''} in your holdings' filings "
+                                     "(defaults, regulator or court action, auditor or CEO/CFO exits, rating cuts)",
+                           "points": min(25, 5 * len(red)), "items": fl_items(red)})
     if amber:
-        deductions.append({"reason": f"{len(amber)} amber flag{'s' if len(amber) != 1 else ''}",
-                           "points": min(10, 2 * len(amber))})
+        deductions.append({"reason": f"{len(amber)} amber flag{'s' if len(amber) != 1 else ''} (pledges, court "
+                                     "judgments without a clear direction, results due within 5 days)",
+                           "points": min(10, 2 * len(amber)), "items": fl_items(amber)})
     if top_n / n > 0.4:
-        deductions.append({"reason": f"{top_n} of {n} holdings in {top_sector}", "points": 10})
+        deductions.append({"reason": f"{top_n} of {n} holdings are in one sector ({top_sector})", "points": 10,
+                           "items": [{"symbol": s, "text": top_sector} for s in h.symbols
+                                     if (h.sectors.get(s) or "Unknown") == top_sector]})
     if weak_mom:
-        deductions.append({"reason": f"{len(weak_mom)} holding{'s' if len(weak_mom) != 1 else ''} with momentum "
-                                     "in the bottom fifth", "points": min(10, 2 * len(weak_mom))})
+        deductions.append({"reason": f"{len(weak_mom)} holding{'s' if len(weak_mom) != 1 else ''} with weak momentum: "
+                                     "their price trend is in the bottom fifth (below the 20th percentile) of the "
+                                     "stocks FINN tracks, i.e. worse than 80% of them over the past year",
+                           "points": min(10, 2 * len(weak_mom)),
+                           "items": [{"symbol": s, "text": f"momentum {round(h.ranks[s]['groups']['momentum'])}th "
+                                                           "percentile"} for s in weak_mom]})
     if h.stale:
         deductions.append({"reason": f"{len(h.stale)} holding{'s' if len(h.stale) != 1 else ''} with stale prices "
-                                     "(score less certain)", "points": 0})
+                                     "(score less certain; no points taken)", "points": 0,
+                           "items": [{"symbol": s, "text": "prices more than 4 days old"} for s in h.stale]})
     score = max(0.0, min(100.0, base - sum(d["points"] for d in deductions)))
     return clean({"ok": True, "score": round(score), "base_avg_composite_pct": round(base, 1),
                   "deductions": deductions, "holdings": n, "ranked": len(comps), "weighting": "equal",

@@ -243,6 +243,8 @@ Update this file at the end of **every** phase. Record only what is actually don
 - Groq answered HTTP 404 for `llama-3.1-8b-instant` and `llama-3.3-70b-versatile`; both removed from the routes.
 - Known limitation: prices are unadjusted closes; corporate actions such as demergers (e.g. VEDL) distort momentum and 1-year change.
 
+**Owner feedback round (6 Nov 05:30–06:00 IST), fixed**: briefing grouped by company (one results item per company, related filings folded; counts are companies); morning briefing in the app's typography; "Why this rank" in plain English plus every measure and the rank formula; Ask FINN gets display-ready values and explains factors; portfolio health ranks against a fixed reference set (removing a weak stock no longer lowers the others' percentiles; added stocks get 10-year history at once) and lists each flag and weak-momentum stock; Back returns to the previous briefing filter and closes dialogs.
+
 **Next**: deploy the Render Blueprint, check `/v1/data-status` (expect ≥ 20 symbols with 1-year history) and `/v1/backtest/latest`, then record the measured numbers here.
 
 ## Metrics (filled in as measured)
