@@ -334,6 +334,32 @@ def rank_reasons(o: dict, universe: int) -> list[str]:
     return lines
 
 
+_PLAIN = {"momentum": ("price trend", "stronger", "weaker"), "quality": ("business quality", "better", "worse"),
+          "value": ("valuation", "cheaper", "pricier"), "safety": ("price stability", "steadier", "more volatile")}
+
+
+def label_reason(o: dict) -> Optional[str]:
+    """One plain sentence under the label: each group's verdict with its most telling measure, e.g.
+    'Cheap: earnings yield 9.1% is cheaper than 85% of FINN's stocks. Weak business: ROE 7.2% is worse than 80%.'"""
+    if o["rank"] is None:
+        return None
+    ms = [m for m in measures(o) if m["value"] is not None and m["percentile"] is not None]
+    parts = []
+    for g in ("quality", "value", "momentum", "safety"):
+        gp = o["groups"].get(g)
+        xs = [m for m in ms if m["group"] == g]
+        if gp is None or not xs:
+            continue
+        m = max(xs, key=lambda m: abs(m["percentile"] - 50))
+        what, good, bad = _PLAIN[g]
+        verdict = "strong" if gp >= 60 else "weak" if gp < 40 else "average"
+        share = lambda k: "all the other" if k >= 100 else f"{k}% of the"  # noqa: E731
+        cmp = (f"{good} than {share(m['percentile'])}" if m["percentile"] >= 50 else f"{bad} than {share(100 - m['percentile'])}")
+        parts.append(f"{what.capitalize()} is {verdict}: {m['label'][0].lower() + m['label'][1:]} {m['value']} is "
+                     f"{cmp} stocks FINN tracks.")
+    return " ".join(parts)
+
+
 def rank_payload(symbol: str, o: dict, universe_size: int, as_of: Optional[str]) -> dict:
     r = lambda v: None if v is None else round(v, 1)  # noqa: E731
     return clean({
@@ -344,6 +370,7 @@ def rank_payload(symbol: str, o: dict, universe_size: int, as_of: Optional[str])
         "factor_pct": {k: (None if v is None else round(v)) for k, v in o["pct"].items()},
         "measures": measures(o),
         "reasons": rank_reasons(o, universe_size),
+        "label_reason": label_reason(o),
         "data": {"price_as_of": o["price_as_of"], "fundamentals_retrieved_at": o["fundamentals_retrieved_at"],
                  "stale": o["stale"], "insufficient": o["insufficient"]},
         "universe_size": universe_size, "model_version": MODEL_VERSION, "caveat": RANK_CAVEAT,

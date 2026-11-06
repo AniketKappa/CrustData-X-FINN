@@ -752,3 +752,8 @@ body { font-family: var(--sans); font-size: 15px; line-height: 1.45; letter-spac
 .ded-top { display: flex; justify-content: space-between; gap: 12px; }
 .ded-items { margin: 6px 0 2px; padding-left: 16px; font-size: var(--fs-xs); color: var(--ink-2); line-height: 1.5; }
 .ded-items li { border: 0 !important; padding: 2px 0 !important; display: list-item !important; }
+.crow { grid-template-columns: 72px 1fr; }
+.crow .ck { overflow-wrap: anywhere; }
+.co-tiles, .fold { padding-left: calc(var(--s-4) + 82px); }
+.sig-why { margin: 2px 0 4px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.45; }
+@media (max-width: 520px) { .co-tiles, .fold { padding-left: var(--s-4); } }

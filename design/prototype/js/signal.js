@@ -57,7 +57,8 @@ export function signalCard(c, st = {}) {
     <div class="sec-head" style="margin:0"><b>FINN Signal</b><span class="sec-sub">${esc(r.as_of ? `prices to ${r.as_of}` : "")}${r.data?.stale ? " · stale" : ""}</span></div>
     ${r.rank == null ? `<p class="note">Not enough data for a rank yet (${esc((r.data?.insufficient || []).length)} inputs missing). Long price history loads in the background after start-up.</p>` : `
     <div class="sig-top"><div class="rank-big">${r.rank}<small>/10</small></div><div><p class="sig-label">${esc(r.label)}</p>
-      <p class="note">Composite ${Math.round(r.composite_pct)}th percentile among ${r.universe_size} stocks FINN tracks</p></div></div>
+      ${r.label_reason ? `<p class="sig-why">${esc(r.label_reason)}</p>` : ""}
+      <p class="note">Overall score beats ${Math.round(r.composite_pct)}% of the ${r.universe_size} stocks FINN tracks.</p></div></div>
     <div class="grades">${grades}</div>
     <div class="sec-head" style="margin-top:10px"><b>Why this rank</b></div>${reasons}
     ${drivers ? `<details><summary>Every measure behind it</summary><ul class="drivers">${drivers}</ul>

@@ -69,6 +69,7 @@ const CAP = 5;
 // One card per company: its price move, ONE results item (the one with numbers; the other filings about the same
 // results are folded under it), then other filings, then media headlines. Companies with the most important
 // update come first (same score the type view uses).
+const SHORT_LABEL = { management: "People", deals: "Deal", legal: "Legal", ratings: "Rating", other: "Filing", results: "Results", market: "Move" };
 const RANKV = (i) => (i.score ? i.score.total : (i.tier === "high" ? 80 : 50));
 function compactRow(i, selectedId, label) {
   const generic = !i.news && i.detail && GENERIC.test(i.title);
@@ -90,7 +91,8 @@ export function companyCards(sections, { selectedId, filter, expanded = new Set(
   return `<section class="bsec" aria-label="Updates by company">${groups.map((g) => {
     const alert = g.items.find((i) => i.alert);
     const results = g.items.filter((i) => !i.alert && !i.news && i._sec.id === "results");
-    const main = results.find((i) => i.resultsBlock) || results[0];
+    const isRes = (i) => /result/i.test(i.title || "");
+    const main = results.find((i) => i.resultsBlock && isRes(i)) || results.find(isRes) || results.find((i) => i.resultsBlock) || results[0];
     const folded = results.filter((i) => i !== main);
     const filings = g.items.filter((i) => !i.alert && !i.news && i._sec.id !== "results").sort((a, b) => RANKV(b) - RANKV(a));
     const news = g.items.filter((i) => i.news).sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
@@ -104,7 +106,7 @@ export function companyCards(sections, { selectedId, filter, expanded = new Set(
       ${alert ? compactRow({ ...alert, title: alert.title || "Price move" }, selectedId, "Move") : ""}
       ${main ? `${compactRow(main, selectedId, "Results")}${main.resultsBlock && !main.hideResults ? `<div class="co-tiles">${tiles(main.resultsBlock)}</div>` : ""}
         ${folded.length ? `<details class="fold"><summary>${folded.length} more filing${folded.length === 1 ? "" : "s"} about these results</summary>${folded.map((i) => compactRow(i, selectedId, "Results")).join("")}</details>` : ""}` : ""}
-      ${filings.slice(0, open ? 99 : 2).map((i) => compactRow(i, selectedId, i._sec.short || "Filing")).join("")}
+      ${filings.slice(0, open ? 99 : 2).map((i) => compactRow(i, selectedId, SHORT_LABEL[i._sec.id] || "Filing")).join("")}
       ${news.slice(0, open ? 99 : 1).map((i) => compactRow(i, selectedId, "News")).join("")}
       ${extra > 0 ? `<button type="button" class="more-row" data-more="${esc(key)}">Show ${extra} more</button>` : open && (filings.length > 2 || news.length > 1) ? `<button type="button" class="more-row" data-more="${esc(key)}">Show fewer</button>` : ""}
     </article>`;
