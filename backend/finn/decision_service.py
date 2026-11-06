@@ -69,6 +69,8 @@ class DecisionService:
         self._bt_cache: Optional[tuple[str, dict]] = None
         self._why: dict[str, dict] = {}
         self._pool = ThreadPoolExecutor(max_workers=3)
+        self._rank_lock = threading.Lock()
+        self._flag_cache: dict = {}
         self._pending: dict = {}
 
     # ------------------------------------------------------------ history
@@ -166,12 +168,20 @@ class DecisionService:
         return out
 
     def rank_all(self) -> dict[str, dict]:
+        """Cached for 2 minutes per universe (health, briefing and the rank list all need it; Render's free CPU is
+        shared, so computing it three times in parallel made the Portfolio view slow). A new backfill or a
+        portfolio change (different universe) recomputes it."""
+        import time as _time
+        uni = tuple(self.universe())
+        with self._rank_lock:
+            if self._rank_cache and self._rank_cache[2] == uni and _time.monotonic() - self._rank_cache[3] < 120:
+                return self._rank_cache[1]
+            out = self._rank_compute()
+            self._rank_cache = (None, out, uni, _time.monotonic())
+            return out
+
+    def _rank_compute(self) -> dict[str, dict]:
         stocks = self._inputs()
-        key = hashlib.sha256(json.dumps([(s.symbol, len(s.closes), s.closes[-1] if s.closes else None,
-                                          str(getattr(s.snapshot, "retrieved_at", None))) for s in stocks]).encode()
-                             ).hexdigest()
-        if self._rank_cache and self._rank_cache[0] == key:
-            return self._rank_cache[1]
         sc = score_universe(stocks)
         asof = max((s.price_as_of for s in stocks if s.price_as_of), default=None)
         out = {s: rank_payload(s, o, len(stocks), asof.isoformat() if asof else None) for s, o in sc.items()}
@@ -180,7 +190,6 @@ class DecisionService:
             o["name"] = c.name if c else s
             o["role"] = c.role if c else "other"
             o["sector"] = c.sector if c else None
-        self._rank_cache = (key, out)
         return out
 
     def rank_list(self, scope: str = "portfolio") -> dict:
@@ -208,6 +217,16 @@ class DecisionService:
 
     # ------------------------------------------------------------ flags
     def flags(self, symbols: Optional[list[str]] = None) -> dict:
+        import time as _time
+        k = tuple(symbols or self.universe())
+        hit = self._flag_cache.get(k)
+        if hit and _time.monotonic() - hit[0] < 120 and hit[2] == self.p.store.count_announcements():
+            return hit[1]
+        res = self._flags_compute(list(k))
+        self._flag_cache[k] = (_time.monotonic(), res, self.p.store.count_announcements())
+        return res
+
+    def _flags_compute(self, symbols: list[str]) -> dict:
         today = self.p.clock().date()
         since = self.p.clock() - timedelta(days=90)
         out = []
@@ -385,8 +404,11 @@ class DecisionService:
         out: dict = {}
         if r:
             out["rank"] = {"id": f"factor:{sym}:rank", "rank": r["rank"], "composite_pct": r["composite_pct"],
-                           "grades": r["grades"], "groups": r["groups"], "label": r["label"],
-                           "as_of": r["as_of"], "insufficient": r["data"]["insufficient"]}
+                           "grades": r["grades"], "group_percentiles": r["groups"], "label": r["label"],
+                           "as_of": r["as_of"], "universe_size": r["universe_size"],
+                           "weights": "momentum 35%, quality 30%, safety 20%, value 15%",
+                           "measures": [{k: m[k] for k in ("group", "label", "value", "percentile", "meaning")}
+                                        for m in r.get("measures", []) if m["value"] is not None]}
             cat.append({"id": f"factor:{sym}:rank", "label": f"FINN Rank for {sym} (experimental)"})
         out["flags"] = [{"id": f["source_id"], "type": f["flag_type"], "level": f["level"], "evidence": f["evidence"],
                          "filed_at": f["filed_at"]} for f in fl]
@@ -479,11 +501,13 @@ class DecisionService:
         r = outs.get("rank")
         pros, cons = [], []
         if r:
-            for g, v in (r["groups"] or {}).items():
-                if v is None:
+            for m in sorted(r.get("measures", []), key=lambda m: -abs((m["percentile"] or 50) - 50)):
+                if m["percentile"] is None:
                     continue
-                (pros if v >= 60 else cons if v < 40 else []).append(
-                    f"{g.title()} grade {r['grades'][g]} ({v:.0f}th percentile among FINN's stocks)")
+                line = (f"{m['label']}: {m['value']} — {m['percentile']}th percentile among FINN's "
+                        f"{r.get('universe_size', '')} stocks ({m['meaning']})")
+                (pros if m["percentile"] >= 60 else cons if m["percentile"] < 40 else []).append(line)
+            pros, cons = pros[:4], cons[:4]
         flags = [f"{f['level'].upper()}: {f['evidence']}" for f in outs.get("flags", [])]
         price = outs.get("price")
         watch = [f"Latest filing: {f['subject'][:90]}" for f in outs.get("filings", [])[:2]]

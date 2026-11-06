@@ -720,3 +720,31 @@ body { font-family: var(--sans); font-size: 15px; line-height: 1.45; letter-spac
 .aibrief .drivers a { color: inherit; text-decoration: none; }
 .aibrief .drivers a:hover { text-decoration: underline; }
 @media (max-width: 420px) { .grades { grid-template-columns: repeat(2, 1fr); } }
+
+/* ---------- Briefing grouped by company ---------- */
+.cocard { padding: 4px 0; overflow: hidden; }
+.cocard + .cocard { margin-top: var(--s-3); }
+.co-head { display: flex; align-items: center; gap: 12px; padding: 12px var(--s-4); color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+.co-head .li-right { margin-left: auto; }
+.crow { display: grid; grid-template-columns: 64px 1fr; gap: 2px 10px; padding: 10px var(--s-4); color: var(--ink); text-decoration: none; border-top: 1px solid var(--rule); }
+.co-head + .crow { border-top: 0; }
+.crow:hover, .crow.sel { background: var(--accent-wash); }
+.crow .ck { grid-row: span 2; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding-top: 3px; }
+.crow .ct { font-size: var(--fs-md); font-weight: 500; line-height: 1.4; }
+.crow .cm { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); color: var(--muted); }
+.co-tiles { padding: 0 var(--s-4) 10px calc(var(--s-4) + 74px); }
+.fold { padding: 0 var(--s-4) 8px calc(var(--s-4) + 74px); font-size: var(--fs-sm); color: var(--muted); }
+.fold summary { cursor: pointer; padding: 4px 0; }
+.fold .crow { padding-left: 0; padding-right: 0; grid-template-columns: 1fr; }
+.fold .crow .ck { display: none; }
+.formula { margin: 12px 0 0; font-size: var(--fs-sm); color: var(--ink-2); }
+.formula summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+.formula ol { margin: 8px 0; padding-left: 20px; line-height: 1.5; }
+.formula li + li { margin-top: 4px; }
+.aibrief .li-head { -webkit-line-clamp: unset; }
+@media (max-width: 520px) { .crow { grid-template-columns: 1fr; } .crow .ck { grid-row: auto; padding: 0; } .co-tiles, .fold { padding-left: var(--s-4); } }
+.reasons { margin: 6px 0 4px; padding-left: 18px; font-size: var(--fs-sm); line-height: 1.5; color: var(--ink-2); }
+.reasons li + li { margin-top: 4px; }
+.reasons li.lead { list-style: none; margin-left: -18px; color: var(--ink); font-weight: 500; }
+.drivers li.dg { margin-top: 8px; border-top: 1px solid var(--rule-2); font-size: var(--fs-sm); }
+.drivers .mean { display: block; color: var(--muted); font-size: var(--fs-xs); margin-top: 1px; }

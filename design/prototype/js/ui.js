@@ -1,4 +1,4 @@
-import { signalCard, healthCard, rankBadge, CAVEAT } from "./signal.js";
+import { signalCard, healthCard, rankBadge, rankFormula, CAVEAT } from "./signal.js";
 // Views for the v3 app (D-55): Briefing, item detail, Portfolio and live company pages. HTML strings only.
 import { esc, crShort, price, change, dt, timeAgo, clock, dayLong, greeting, pctPill, avatar, shortName, shortDate } from "./format.js";
 import { WINDOWS, CATEGORY_LABEL } from "./logic.js";
@@ -65,7 +65,53 @@ function personMini(p) {
 }
 
 const CAP = 5;
-export function briefingV3({ movers = [], sessions = 1, sections, routine, hidden, windowId, asOf, holdings, holdingSyms = null, selectedId, speaking, speechOk, routineOpen, live, filter, counts, expanded = new Set(), busy = new Set() }) {
+// ---------------------------------------------------------------- Briefing grouped by company
+// One card per company: its price move, ONE results item (the one with numbers; the other filings about the same
+// results are folded under it), then other filings, then media headlines. Companies with the most important
+// update come first (same score the type view uses).
+const RANKV = (i) => (i.score ? i.score.total : (i.tier === "high" ? 80 : 50));
+function compactRow(i, selectedId, label) {
+  const generic = !i.news && i.detail && GENERIC.test(i.title);
+  const head = generic ? clip1(i.detail, 160) : i.title;
+  return `<a class="crow${i.id === selectedId ? " sel" : ""}" href="#/briefing/item/${encodeURIComponent(i.id)}" data-id="${esc(i.id)}">
+    <span class="ck">${esc(label)}</span><span class="ct">${esc(clip1(head, 180))}</span>
+    <span class="cm">${i.news ? SRC.news : SRC.filing}${sourceLabel(i)} · ${esc(timeAgo(i.published_at))}</span></a>`;
+}
+export function companyCards(sections, { selectedId, filter, expanded = new Set() }) {
+  const items = sections.filter((s) => filter === "all" || filter === s.id).flatMap((s) => s.items.map((i) => ({ ...i, _sec: s })));
+  const by = new Map();
+  for (const i of items) {
+    const k = i.symbol || i.company;
+    if (!by.has(k)) by.set(k, { symbol: i.symbol, company: i.company, items: [], top: 0 });
+    const g = by.get(k); g.items.push(i); g.top = Math.max(g.top, RANKV(i));
+  }
+  const groups = [...by.values()].sort((a, b) => b.top - a.top || b.items.length - a.items.length);
+  if (!groups.length) return "";
+  return `<section class="bsec" aria-label="Updates by company">${groups.map((g) => {
+    const alert = g.items.find((i) => i.alert);
+    const results = g.items.filter((i) => !i.alert && !i.news && i._sec.id === "results");
+    const main = results.find((i) => i.resultsBlock) || results[0];
+    const folded = results.filter((i) => i !== main);
+    const filings = g.items.filter((i) => !i.alert && !i.news && i._sec.id !== "results").sort((a, b) => RANKV(b) - RANKV(a));
+    const news = g.items.filter((i) => i.news).sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
+    const key = `co:${g.symbol}`, open = expanded.has(key);
+    const extra = filings.slice(open ? 99 : 2).length + news.slice(open ? 99 : 1).length;
+    const c = alert?.calc || {};
+    return `<article class="card cocard">
+      <a class="co-head" href="#/company/${encodeURIComponent(g.symbol || "")}/overview">${avatar(g.symbol, g.company)}
+        <span class="li-co"><span class="nm">${esc(shortName(g.company))}</span><span class="sub">${esc(g.symbol || "")} · ${g.items.length} update${g.items.length === 1 ? "" : "s"}</span></span>
+        ${alert ? `<span class="li-right"><span class="px">${c.close != null ? price(c.close) : ""}</span>${pctPill(alert.chg)}</span>` : `<span class="chev-r" aria-hidden="true"></span>`}</a>
+      ${alert ? compactRow({ ...alert, title: alert.title || "Price move" }, selectedId, "Move") : ""}
+      ${main ? `${compactRow(main, selectedId, "Results")}${main.resultsBlock && !main.hideResults ? `<div class="co-tiles">${tiles(main.resultsBlock)}</div>` : ""}
+        ${folded.length ? `<details class="fold"><summary>${folded.length} more filing${folded.length === 1 ? "" : "s"} about these results</summary>${folded.map((i) => compactRow(i, selectedId, "Results")).join("")}</details>` : ""}` : ""}
+      ${filings.slice(0, open ? 99 : 2).map((i) => compactRow(i, selectedId, i._sec.short || "Filing")).join("")}
+      ${news.slice(0, open ? 99 : 1).map((i) => compactRow(i, selectedId, "News")).join("")}
+      ${extra > 0 ? `<button type="button" class="more-row" data-more="${esc(key)}">Show ${extra} more</button>` : open && (filings.length > 2 || news.length > 1) ? `<button type="button" class="more-row" data-more="${esc(key)}">Show fewer</button>` : ""}
+    </article>`;
+  }).join("")}</section>`;
+}
+
+export function briefingV3({ movers = [], sessions = 1, sections, routine, hidden, windowId, asOf, holdings, holdingSyms = null, selectedId, group = "company", brief = "", speaking, speechOk, routineOpen, live, filter, counts, expanded = new Set(), busy = new Set() }) {
   const w = WINDOWS.find((x) => x.id === windowId);
   const total = sections.reduce((n, s) => n + s.items.filter((i) => !i.older).length, 0);
   const touched = new Set(sections.flatMap((s) => s.items.filter((i) => !i.older).map((i) => i.symbol)));
@@ -94,12 +140,14 @@ export function briefingV3({ movers = [], sessions = 1, sections, routine, hidde
     </div>
     ${live?.message ? `<p class="note" role="status" style="margin-top:8px">${esc(live.message)}</p>` : ""}
   </section>
-  <div class="toolbar brief"><div class="seg" role="group" aria-label="Time window">${seg}</div></div>
+  ${brief}
+  <div class="toolbar brief"><div class="seg" role="group" aria-label="Time window">${seg}</div>
+    <div class="seg" role="group" aria-label="Group updates"><button type="button" class="seg-b" data-group="company" aria-pressed="${group === "company"}">By company</button><button type="button" class="seg-b" data-group="type" aria-pressed="${group !== "company"}">By type</button></div></div>
   <div class="tabwrap"><nav class="tabbar" role="group" aria-label="Show">${chips}</nav><button type="button" class="tab-more" aria-label="More tabs" tabindex="-1"><svg class="ic sm" viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5l5 5-5 5"/></svg></button></div>
   ${filter === "all" && movers.length ? `<section class="bsec" aria-labelledby="h-movers">
     <div class="sec-head"><h2 class="sec-title" id="h-movers">Biggest moves</h2><span class="sec-sub">${sessions === 1 ? (movers.some((m) => m.live) ? "today so far" : "last session") : `last ${sessions} sessions`}</span></div>
     <div class="movers">${movers.map((m) => `<a class="mover" href="#/company/${encodeURIComponent(m.symbol)}/overview"><span class="tk">${esc(m.symbol)}</span><span class="nm">${esc(shortName(m.name))}</span>${pctPill(m.chg)}</a>`).join("")}</div></section>` : ""}
-  ${shown.map((s) => {
+  ${group === "company" ? (companyCards(shown, { selectedId, filter, expanded }) || (live?.refreshing ? `<p class="note" role="status">Getting the latest data…</p>` : `<div class="card empty-card">Nothing here in the last ${esc(w.label)}. Try a longer window.</div>`)) : shown.map((s) => {
     const open = expanded.has(s.id) || filter === s.id;
     const shownItems = open ? s.items : s.items.slice(0, CAP);
     const rest = s.items.length - shownItems.length;
@@ -224,7 +272,7 @@ export function portfolioV3({ holdings, watchlist, tab, editing, editable, live,
       <span class="note">${n ? `${n} selected` : "Tick stocks to delete"}</span></div>` : ""}
     ${live && tab !== "watch" && !editing ? healthCard(health) : ""}
     <div class="card list">${list.map(rowp).join("") || `<div class="empty-card">No stocks here yet.${editable ? " Tap Edit, then Add." : ""}</div>`}</div>
-    ${ranks ? `<p class="caption">The number by each price is FINN Rank (1–10) vs the stocks FINN tracks. ${esc(CAVEAT)}</p>` : ""}
+    ${ranks ? `<p class="caption">The number by each price is FINN Rank (1–10) vs the stocks FINN tracks. ${esc(CAVEAT)}</p>${rankFormula(Object.keys(ranks).length)}` : ""}
     ${!editable && !live ? `<p class="note">Run FINN's backend to change your lists; this view shows the demo list.</p>` : ""}
 `;
 }

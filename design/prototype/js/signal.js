@@ -13,6 +13,21 @@ const FACTOR_LABEL = {
 const pctFmt = (k, v) => v == null ? "—" : /^(mom_|value_)/.test(k) || k === "vol_1y" ? `${(v * 100).toFixed(1)}%`
   : k === "high_52w" ? `${(v * 100).toFixed(0)}% of high` : k.startsWith("quality_roe") || k === "quality_roce" ? `${v.toFixed(1)}%` : v.toFixed(2);
 
+// How FINN Rank is calculated (shown on the company page and the portfolio; mirrors backend finn/decision.py).
+export function rankFormula(n) {
+  return `<details class="formula"><summary>How FINN Rank is calculated</summary>
+    <ol>
+      <li>Each measure is turned into a <b>percentile from 0 to 100</b> among the ${n || ""} stocks FINN tracks (100 = best). For volatility and debt, lower is better, so the order is flipped.</li>
+      <li><b>Momentum</b> = average percentile of: return from 12 months ago to 1 month ago · return from 6 months ago to 1 month ago · price ÷ 52-week high.</li>
+      <li><b>Quality</b> = average percentile of: ROE · ROCE · 5-year cash from operations ÷ 5-year profit · debt ÷ equity. Banks and NBFCs use ROE only. Loss-makers get no cash-conversion score; negative net worth gets the worst debt score.</li>
+      <li><b>Value</b> = average percentile of: earnings yield (1 ÷ P/E) · book value ÷ price.</li>
+      <li><b>Safety</b> = percentile of 1-year volatility of daily returns (lower volatility scores higher).</li>
+      <li><b>Composite</b> = 0.35 × Momentum + 0.30 × Quality + 0.20 × Safety + 0.15 × Value. If a group has no data, the other weights are scaled up to add to 1.</li>
+      <li><b>FINN Rank</b> = the composite's percentile ÷ 10, rounded up (1 to 10). Grades: A ≥ 80, B ≥ 60, C ≥ 40, D ≥ 20, F below 20.</li>
+    </ol>
+    <p class="caption">Prices: Yahoo Finance daily closes (10 years). Fundamentals: Screener, latest snapshot. ${esc(CAVEAT)}</p></details>`;
+}
+
 export function rankBadge(r) {
   if (!r || r.rank == null) return "";
   return `<span class="rank-b" title="FINN Rank ${r.rank}/10 · ${esc(r.label)} · ${esc(CAVEAT)}">${r.rank}<small>/10</small></span>`;
@@ -30,8 +45,11 @@ export function signalCard(c, st = {}) {
   const grades = Object.entries(GROUP_LABEL).map(([g, l]) => `<div class="g"><span class="gl">${l}</span>
     <span class="gr gr-${esc((r.grades[g] || "—").replace("—", "na"))}">${esc(r.grades[g] || "—")}</span>
     <span class="note">${r.groups[g] == null ? "no data" : `${Math.round(r.groups[g])}th pct`}</span></div>`).join("");
-  const drivers = (r.drivers || []).map((d) => `<li><span>${esc(FACTOR_LABEL[d.factor] || d.factor)}</span>
-    <span class="n">${esc(pctFmt(d.factor, d.value))} · ${d.pct}th pct</span></li>`).join("");
+  const ms = r.measures || [];
+  const byG = Object.keys(GROUP_LABEL).map((g) => [g, ms.filter((m) => m.group === g)]).filter(([, xs]) => xs.length);
+  const drivers = byG.map(([g, xs]) => `<li class="dg"><b>${GROUP_LABEL[g]}</b><span class="n">grade ${esc(r.grades[g] || "—")}${r.groups[g] == null ? "" : ` · ${Math.round(r.groups[g])}th pct`}</span></li>`
+    + xs.map((m) => `<li><span>${esc(m.label)}<small class="mean">${esc(m.meaning)}</small></span><span class="n">${m.value == null ? "no data" : `${esc(m.value)} · ${m.percentile}th pct`}</span></li>`).join("")).join("");
+  const reasons = (r.reasons || []).length ? `<ul class="reasons">${r.reasons.map((x, i) => `<li${i === 0 ? ' class="lead"' : ""}>${esc(x)}</li>`).join("")}</ul>` : "";
   const flags = c.flags?.length ? `<ul class="flags">${c.flags.map(flagRow).join("")}</ul>` : `<p class="note">No red or amber flags in filings FINN has seen.</p>`;
   const why = st.why ? whyBlock(st.why) : `<button type="button" class="btn ghost" data-act="why-move" data-symbol="${esc(c.symbol)}"${st.whyLoading ? " disabled" : ""}>${st.whyLoading ? "Checking filings and news…" : "Why did it move?"}</button>`;
   const ask = askBlock(c.symbol, st);
@@ -41,8 +59,9 @@ export function signalCard(c, st = {}) {
     <div class="sig-top"><div class="rank-big">${r.rank}<small>/10</small></div><div><p class="sig-label">${esc(r.label)}</p>
       <p class="note">Composite ${Math.round(r.composite_pct)}th percentile among ${r.universe_size} stocks FINN tracks</p></div></div>
     <div class="grades">${grades}</div>
-    ${drivers ? `<details><summary>What drives it</summary><ul class="drivers">${drivers}</ul>
-      <p class="caption">Weights: momentum 35%, quality 30%, safety 20%, value 15%. Percentiles are within FINN's tracked stocks. Fundamentals from Screener (latest snapshot); prices from Yahoo Finance.</p></details>` : ""}`}
+    <div class="sec-head" style="margin-top:10px"><b>Why this rank</b></div>${reasons}
+    ${drivers ? `<details><summary>Every measure behind it</summary><ul class="drivers">${drivers}</ul>
+      </details>` : ""}${rankFormula(r.universe_size)}`}
     <div class="sec-head" style="margin-top:14px"><b>Red flags</b><span class="sec-sub">from exchange filings</span></div>${flags}
     <div class="sec-head" style="margin-top:14px"><b>Latest move</b></div>${why}
     ${ask}
@@ -87,7 +106,7 @@ export function healthCard(h) {
 
 export function aiBriefCard(b) {
   if (!b || !b.bullets?.length) return "";
-  return `<div class="card aibrief" style="padding:16px;margin-bottom:12px"><div class="sec-head" style="margin:0"><b>Morning briefing</b><span class="sec-sub">${esc(b.headline)}</span></div>
-    <ul class="drivers">${b.bullets.map((x) => `<li><a href="#/company/${encodeURIComponent(x.symbol)}/overview">${esc(x.text)}</a></li>`).join("")}</ul>
-    <p class="caveat">Built from filings, prices and FINN Rank. ${esc(CAVEAT)}</p></div>`;
+  return `<section class="bsec aibrief" aria-labelledby="h-ai"><div class="sec-head"><h2 class="sec-title" id="h-ai">Morning briefing</h2><span class="sec-sub">${esc(b.headline)}</span></div>
+    <div class="card list">${b.bullets.map((x) => `<a class="li" href="#/company/${encodeURIComponent(x.symbol)}/overview"><p class="li-head" style="margin:0">${esc(x.text)}</p></a>`).join("")}</div>
+    <p class="caption">Built from filings, prices and FINN Rank. ${esc(CAVEAT)}</p></section>`;
 }

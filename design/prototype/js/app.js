@@ -26,7 +26,7 @@ const S = {
   settings: { ...DEFAULT_SETTINGS, ...store.get("settings", {}), categories: { ...DEFAULT_SETTINGS.categories, ...(store.get("settings", {}).categories || {}) } },
   marks: store.get("marks", { done: {}, snoozed: {} }),
   routineOpen: false, speaking: null, notes: [], filter: "all",
-  ptab: "hold", editing: false, search: { q: "", results: null, note: null }, expanded: new Set(), selected: new Set(),
+  ptab: "hold", group: (() => { try { return localStorage.getItem("finn.group") || "company"; } catch { return "company"; } })(), editing: false, search: { q: "", results: null, note: null }, expanded: new Set(), selected: new Set(),
   add: { q: "", results: null, note: null }, rsearch: { q: "", results: null, note: null },
 };
 // Actions that talk to the server are locked while in flight, so repeated or simultaneous taps run them once.
@@ -78,14 +78,17 @@ async function loadHoldings() {
 // Decision support: rank list, portfolio health and the morning briefing card, refreshed at most every 5 minutes.
 async function loadDecision() {
   if (LIVE.dsLoading || Date.now() - LIVE.dsAt < 5 * 60e3) return;
-  LIVE.dsLoading = true;
-  const [r, h, b] = await Promise.allSettled([getRankList(), getPortfolioHealth(), getAgentBriefing()]);
-  if (r.status === "fulfilled") LIVE.ranks = Object.fromEntries(r.value.items.map((x) => [x.symbol, x]));
-  LIVE.phealth = h.status === "fulfilled" ? h.value : null;
-  if (b.status === "fulfilled") LIVE.abrief = b.value;
-  LIVE.dsAt = Date.now(); LIVE.dsLoading = false;
-  render();
+  LIVE.dsLoading = true; LIVE.dsAt = Date.now();
+  const one = (p, set, fail = () => {}) => p.then(set, fail).finally(() => renderKeep());
+  await Promise.all([
+    one(getPortfolioHealth(), (h) => { LIVE.phealth = h; }, () => { LIVE.phealth = null; }),
+    one(getRankList(), (r) => { LIVE.ranks = Object.fromEntries(r.items.map((x) => [x.symbol, x])); }),
+    one(getAgentBriefing(), (b) => { LIVE.abrief = b; }),
+  ]);
+  LIVE.dsLoading = false;
 }
+// Called after holdings change: health, ranks and the morning briefing are recomputed on the next view.
+function invalidateDecision() { LIVE.dsAt = 0; LIVE.phealth = undefined; LIVE.abrief = null; LIVE.sig.clear(); }
 const sigState = (sym) => { if (!LIVE.sig.has(sym)) LIVE.sig.set(sym, {}); return LIVE.sig.get(sym); };
 async function loadWhy(sym) {
   const st = sigState(sym);
@@ -281,12 +284,11 @@ function render() {
     const winLabel = WINDOWS.find((w) => w.id === windowId).label;
     S.lastBriefing = { sections: v.sections.map((s) => ({ ...s, items: s.items.filter((i) => !i.older) })), routine: v.routine, winLabel };
     if (S.filter !== "all" && !v.sections.some((s) => s.id === S.filter)) S.filter = "all";
-    const list = briefingV3({ ...v, windowId, holdings: holdingsCount(), holdingSyms: holdingSymbols(), selectedId: selId, speaking: S.speaking === "brief", speechOk,
+    const list = briefingV3({ ...v, windowId, holdings: holdingsCount(), holdingSyms: holdingSymbols(), group: S.group, brief: LIVE.on && !selId ? aiBriefCard(LIVE.abrief) : "", selectedId: selId, speaking: S.speaking === "brief", speechOk,
       routineOpen: S.routineOpen, filter: S.filter, expanded: S.expanded, busy });
     if (LIVE.on) loadDecision();
-    const brief = LIVE.on && !sel ? aiBriefCard(LIVE.abrief) : "";
-    if (wide.matches) html = `<div class="split"><div class="col-list">${brief}${list}</div><aside class="pane" aria-label="Details">${detailV3(sel, { asPane: true, settings: S.settings })}</aside></div>`;
-    else html = sel ? detailV3(sel, { asPane: false, settings: S.settings }) : brief + list;
+    if (wide.matches) html = `<div class="split"><div class="col-list">${list}</div><aside class="pane" aria-label="Details">${detailV3(sel, { asPane: true, settings: S.settings })}</aside></div>`;
+    else html = sel ? detailV3(sel, { asPane: false, settings: S.settings }) : list;
     if (selId && !sel) html = `<div class="card empty-card">That update is no longer in your briefing. <a href="#/briefing">Back</a></div>`;
     title = sel ? sel.title : "Briefing";
   } else if (top === "portfolio") {
@@ -506,6 +508,7 @@ document.addEventListener("click", async (e) => {
   if (ds.ev) { const ev = registry.ev.get(ds.ev); if (ev && !dlg.open) openDialog(evidenceBody(ev)); return; }
   if (ds.window) { const { parts } = parse(); stopSpeech(); go(`#/briefing${parts[1] === "item" ? "/" + parts.slice(1).join("/") : ""}?w=${ds.window}`); return; }
   if (ds.filter) { S.filter = ds.filter; render(); return; }
+  if (ds.group) { S.group = ds.group; try { localStorage.setItem("finn.group", ds.group); } catch { /* private mode */ } render(); return; }
   if (ds.more) { if (S.expanded.has(ds.more)) S.expanded.delete(ds.more); else S.expanded.add(ds.more); render(); return; }
   if (t.classList.contains("tab-more")) { const bar = t.parentElement.querySelector(".tabbar"); bar?.scrollBy({ left: bar.clientWidth * 0.7, behavior: "smooth" }); return; }
   if (ds.rtab) { const sym = currentResearch(); if (sym) go(`#/research?c=${encodeURIComponent(sym)}&s=${ds.rtab}`); return; }
@@ -518,6 +521,7 @@ document.addEventListener("click", async (e) => {
     await once(`add:${ds.add}`, async () => {
       try {
         const r = await addHolding({ symbol: ds.add, name: ds.name, sector: ds.sector || null, role: ds.role });
+        invalidateDecision();
         showToast(`${r.added.name} added to your ${ds.role === "research" ? "watchlist" : "holdings"}. Fetching its prices, news and fundamentals…`);
         if (dlg.open) { const b = document.getElementById("add-results"); if (b) b.innerHTML = addHtml(); }
         invalidate(); await loadHoldings();
@@ -563,6 +567,7 @@ searchers["research-search"] = makeSearch(S.rsearch, "research-results", () => r
       await once("delete", async () => {
         const failed = [];
         for (const sym of syms) { try { await removeHolding(sym); } catch { failed.push(sym); } }
+        invalidateDecision();
         S.selected = new Set(failed);
         showToast(failed.length ? `Couldn't delete ${failed.join(", ")}.` : `Deleted ${syms.length} stock${syms.length > 1 ? "s" : ""}.`);
         invalidate(); await loadHoldings();

@@ -261,6 +261,79 @@ def score_universe(stocks: Iterable[StockInputs], groups_used: Sequence[str] = t
     return out
 
 
+FACTOR_INFO = {
+    "mom_12_1": ("momentum", "Return from 12 months ago to 1 month ago", "pct",
+                 "how much the price rose or fell over the past year, leaving out the latest month"),
+    "mom_6_1": ("momentum", "Return from 6 months ago to 1 month ago", "pct",
+                "the same over the past half-year"),
+    "high_52w": ("momentum", "Price ÷ 52-week high", "pct",
+                 "how close the price is to its best level of the past year (100% = at the high)"),
+    "vol_1y": ("safety", "1-year volatility of daily returns (annualised)", "pct",
+               "how much the price swings day to day; lower is safer"),
+    "quality_roe": ("quality", "Return on equity (ROE)", "num%", "profit earned per ₹100 of shareholders' money"),
+    "quality_roce": ("quality", "Return on capital employed (ROCE)", "num%",
+                     "profit earned per ₹100 of all capital, debt included"),
+    "quality_cfo_pat": ("quality", "5-year cash from operations ÷ 5-year profit", "x",
+                        "whether reported profit turns into cash (1.0× or more is healthy)"),
+    "quality_de": ("quality", "Debt ÷ equity (latest year)", "x", "borrowing relative to shareholders' money; lower is safer"),
+    "value_ep": ("value", "Earnings yield (1 ÷ P/E)", "pct", "profit per ₹100 of share price; higher is cheaper"),
+    "value_bp": ("value", "Book value ÷ price", "x", "net assets per ₹1 of share price; higher is cheaper"),
+}
+
+
+def fmt_factor(k: str, v: Optional[float]) -> Optional[str]:
+    if v is None:
+        return None
+    kind = FACTOR_INFO[k][2]
+    return f"{v * 100:+.1f}%" if kind == "pct" and k.startswith("mom_") else (
+        f"{v * 100:.1f}%" if kind == "pct" else f"{v:.1f}%" if kind == "num%" else f"{v:.2f}×")
+
+
+def measures(o: dict) -> list[dict]:
+    """Every input behind the rank, in plain words: value, percentile among FINN's stocks, and what it measures."""
+    out = []
+    for k, (group, label, _, meaning) in FACTOR_INFO.items():
+        if k not in o["raw"]:
+            continue
+        p = o["pct"].get(k)
+        out.append({"factor": k, "group": group, "label": label, "value": fmt_factor(k, o["raw"].get(k)),
+                    "percentile": None if p is None else round(p), "meaning": meaning,
+                    "reading": None if p is None else ("strong" if p >= 60 else "middling" if p >= 40 else "weak")})
+    return out
+
+
+GROUP_ORDER = [("momentum", "Momentum", "recent price trend"), ("quality", "Quality", "how profitable and sound the business is"),
+               ("safety", "Safety", "how calm the price is"), ("value", "Value", "how cheap the share is for what it earns and owns")]
+
+
+def _ord(n: int) -> str:
+    return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+def rank_reasons(o: dict, universe: int) -> list[str]:
+    """Plain-English reasoning built from the numbers (no model): a lead sentence, then one line per group."""
+    ms = measures(o)
+    if o["rank"] is None:
+        return ["Not enough data for a rank yet: " + ", ".join(m["label"] for m in ms if m["value"] is None)[:200] + "."]
+    cp = round(o["composite_pct"])
+    lines = [f"FINN Rank {o['rank']}/10: its weighted score is higher than {cp}% of the {universe} stocks FINN tracks."]
+    graded = [(g, name, o["groups"].get(g)) for g, name, _ in GROUP_ORDER if o["groups"].get(g) is not None]
+    best = max(graded, key=lambda x: x[2]) if graded else None
+    worst = min(graded, key=lambda x: x[2]) if graded else None
+    if best and worst and best[0] != worst[0]:
+        lines[0] += f" Strongest: {best[1].lower()}. Weakest: {worst[1].lower()}."
+    for g, name, what in GROUP_ORDER:
+        gp = o["groups"].get(g)
+        if gp is None:
+            lines.append(f"{name} ({what}): no data.")
+            continue
+        word = "strong" if gp >= 60 else "average" if gp >= 40 else "weak"
+        parts = [f"{m['label'][0].lower() + m['label'][1:]} {m['value']} ({_ord(m['percentile'])} percentile)" for m in ms
+                 if m["group"] == g and m["value"] is not None and m["percentile"] is not None]
+        lines.append(f"{name} is {word} — grade {grade(gp)}, {_ord(round(gp))} percentile ({what}): " + "; ".join(parts) + ".")
+    return lines
+
+
 def rank_payload(symbol: str, o: dict, universe_size: int, as_of: Optional[str]) -> dict:
     r = lambda v: None if v is None else round(v, 1)  # noqa: E731
     return clean({
@@ -268,6 +341,9 @@ def rank_payload(symbol: str, o: dict, universe_size: int, as_of: Optional[str])
         "grades": o["grades"], "groups": {g: r(v) for g, v in o["groups"].items()}, "label": o["label"],
         "drivers": [{**d, "value": None if d["value"] is None else round(d["value"], 4)} for d in o["drivers"]],
         "factors": {k: (None if v is None else round(v, 4)) for k, v in o["raw"].items()},
+        "factor_pct": {k: (None if v is None else round(v)) for k, v in o["pct"].items()},
+        "measures": measures(o),
+        "reasons": rank_reasons(o, universe_size),
         "data": {"price_as_of": o["price_as_of"], "fundamentals_retrieved_at": o["fundamentals_retrieved_at"],
                  "stale": o["stale"], "insufficient": o["insufficient"]},
         "universe_size": universe_size, "model_version": MODEL_VERSION, "caveat": RANK_CAVEAT,
