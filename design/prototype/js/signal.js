@@ -89,7 +89,7 @@ function calcTab(r) {
 export function signalCard(c, st = {}) {
   const r = c.rank;
   if (!r) return "";
-  const tab = st.tab || "how";
+  const tab = st.tab || null;          // both closed until the user taps one
   const flags = c.flags?.length ? `<ul class="flags">${c.flags.map(flagRow).join("")}</ul>` : `<p class="note">No red or amber flags in the exchange filings FINN has seen for this company.</p>`;
   return `<div class="card signal" style="padding:16px">
     <div class="sec-head" style="margin:0"><b>FINN Signal</b><span class="sec-sub">${esc(r.as_of ? `prices to ${r.as_of}` : "")}${r.data?.stale ? " · stale" : ""}</span></div>
@@ -97,9 +97,9 @@ export function signalCard(c, st = {}) {
       <p class="sig-label">${esc(r.headline || r.label)}</p>
       <p class="note" style="margin:2px 0 0">Compared with the ${r.universe_size} stock${r.universe_size === 1 ? "" : "s"} in your portfolio. 10 = strongest, 1 = weakest.</p></div></div>
     <div class="seg sig-tabs" role="tablist" aria-label="FINN Rank">
-      <button type="button" class="seg-b" role="tab" data-sigtab="how" data-symbol="${esc(c.symbol)}" aria-pressed="${tab === "how"}">How FINN Rank works</button>
-      <button type="button" class="seg-b" role="tab" data-sigtab="calc" data-symbol="${esc(c.symbol)}" aria-pressed="${tab === "calc"}">Calculation for ${esc(c.symbol)}</button></div>
-    <div class="sig-body">${tab === "calc" ? calcTab(r) : howTab(r.universe_size)}</div>
+      <button type="button" class="seg-b" data-sigtab="how" data-symbol="${esc(c.symbol)}" aria-expanded="${tab === "how"}" aria-pressed="${tab === "how"}">How FINN Rank works <span class="chev-s" aria-hidden="true">${tab === "how" ? "▴" : "▾"}</span></button>
+      <button type="button" class="seg-b" data-sigtab="calc" data-symbol="${esc(c.symbol)}" aria-expanded="${tab === "calc"}" aria-pressed="${tab === "calc"}">Calculation for ${esc(c.symbol)} <span class="chev-s" aria-hidden="true">${tab === "calc" ? "▴" : "▾"}</span></button></div>
+    ${tab ? `<div class="sig-body">${tab === "calc" ? calcTab(r) : howTab(r.universe_size)}</div>` : ""}
     <div class="sec-head" style="margin-top:16px"><b>Red flags</b><span class="sec-sub">from exchange filings</span></div>${flags}
     <p class="caveat">${esc(CAVEAT)}</p></div>`;
 }

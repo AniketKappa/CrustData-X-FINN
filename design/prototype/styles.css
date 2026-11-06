@@ -781,3 +781,4 @@ body { font-family: var(--sans); font-size: 15px; line-height: 1.45; letter-spac
 .hc { margin: 10px 0 0; font-size: var(--fs-sm); color: var(--ink-2); }
 .hc p { margin: 0; }
 @media (max-width: 520px) { .sig-t th, .sig-t td { padding-right: 6px; } .sig-t tbody th { white-space: normal; } }
+.chev-s { font-size: 10px; margin-left: 4px; color: var(--muted); }

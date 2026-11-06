@@ -37,6 +37,16 @@ ROUTES: dict[str, list[tuple[str, str]]] = {
     "fast": [("groq", "openai/gpt-oss-20b"), ("groq", "openai/gpt-oss-120b"), ("openrouter", "openrouter/free")],
     "long": [("groq", "openai/gpt-oss-120b"), ("groq", "openai/gpt-oss-20b"), ("openrouter", "openrouter/free")],
 }
+# Extra models tried after the route's own slots, if the account can use them (checked once via each provider's
+# /models list at start-up). Every Groq model has its own free per-minute and per-day quota, so more models means
+# more capacity. OpenRouter's free models share one per-account daily allowance.
+EXTRA = {
+    "groq": ["qwen/qwen3-32b", "meta-llama/llama-4-scout-17b-16e-instruct", "meta-llama/llama-4-maverick-17b-128e-instruct",
+             "moonshotai/kimi-k2-instruct", "moonshotai/kimi-k2-instruct-0905", "llama-3.3-70b-versatile",
+             "llama-3.1-8b-instant", "gemma2-9b-it"],
+    "openrouter": ["deepseek/deepseek-chat-v3-0324:free", "meta-llama/llama-3.3-70b-instruct:free",
+                   "qwen/qwen3-235b-a22b:free", "google/gemma-3-27b-it:free", "mistralai/mistral-small-3.2-24b-instruct:free"],
+}
 TPM = {"openai/gpt-oss-20b": 8000, "openai/gpt-oss-120b": 8000, "llama-3.3-70b-versatile": 12000,
        "llama-3.1-8b-instant": 6000, "openrouter/free": 100000}
 MAX_WAIT_S = 45.0          # wait this long at most for a model's minute budget to free up (Groq budgets reset each minute)
@@ -116,12 +126,42 @@ class LLM:
                 pairs[0] = ("groq", os.environ["GROQ_MODEL"].strip())
             if os.environ.get("OPENROUTER_MODEL"):
                 pairs[-1] = ("openrouter", os.environ["OPENROUTER_MODEL"].strip())
+        avail = self._available_models()
+        if not spec:
+            for prov in ("groq", "openrouter"):
+                pairs += [(prov, m) for m in EXTRA[prov] if (prov, m) not in pairs]
         out = []
         for prov, model in pairs:
-            prov = prov.strip()
-            if prov in PROVIDERS and self._key(prov):
-                out.append((prov, self._key(prov), PROVIDERS[prov][1], model.strip()))
-        return out
+            prov, model = prov.strip(), model.strip()
+            if prov not in PROVIDERS or not self._key(prov):
+                continue
+            known = avail.get(prov)
+            if known is not None and model not in known and model != "openrouter/free":
+                continue                      # the account can't use this model (avoids 404s)
+            if known is None and (prov, model) not in ROUTES.get(route, []) and not spec:
+                continue                      # list unknown: stick to the route's own slots
+            out.append((prov, self._key(prov), PROVIDERS[prov][1], model))
+        # openrouter/free last: it shares the account's daily allowance with every other free model
+        return sorted(out, key=lambda x: x[3] == "openrouter/free")
+
+    def _available_models(self) -> dict:
+        """Model ids each provider says this key can use; fetched once (5 s timeout), None when unknown."""
+        if getattr(self, "_avail", None) is not None:
+            return self._avail
+        avail: dict = {}
+        for prov in ("groq", "openrouter"):
+            key = self._key(prov)
+            if not key:
+                continue
+            try:
+                r = self._client.get(f"{PROVIDERS[prov][1]}/models", headers={"Authorization": f"Bearer {key}"},
+                                     timeout=5.0)
+                ids = {m.get("id") for m in (r.json().get("data") or [])} if r.status_code == 200 else None
+            except Exception:  # noqa: BLE001 - discovery is optional
+                ids = None
+            avail[prov] = ids
+        self._avail = avail
+        return avail
 
     def providers(self) -> list:
         return self.slots("long")
@@ -148,7 +188,7 @@ class LLM:
         # Prefer a model that has budget right now (so parallel calls spread over models instead of queueing on one);
         # if every model is busy, wait for whichever frees up first. Failures fall through to the next slot.
         tried: set[str] = set()
-        for _ in range(4):
+        for _ in range(max(4, len(self.slots(route)))):
             cands = []
             for i, (prov, key, base, model) in enumerate(self.slots(route)):
                 if model in tried or need > self._tpm(model):

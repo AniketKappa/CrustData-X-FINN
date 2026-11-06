@@ -166,9 +166,41 @@ class ResearchEngine:
                     s["status"] = "failed"
         job["finished_at"] = utcnow().isoformat()
         if job["status"] == "done":
+            failed = self._failed_sections(job)
+            if failed:
+                job["auto_retry"] = {"pending": failed, "next_in_s": 60}
             self.store.put_research(f"{VERSION}:{job['symbol']}", json.dumps(job, default=str))
+            if failed:
+                threading.Thread(target=self._auto_retry, args=(job["symbol"],), daemon=True).start()
         with self._lock:
             self.jobs.pop(job["symbol"], None)
+
+    @staticmethod
+    def _failed_sections(job: dict) -> list[str]:
+        return [k for k in ("business", "narrative", "bull_bear") if (job.get("sections", {}).get(k) or {}).get("status") == "llm_failed"]
+
+    def _auto_retry(self, symbol: str) -> None:
+        """Sections blocked by the free AI quotas are re-written in the background after 1, 2, 4 and 8 minutes
+        (Groq's limits reset each minute; other models in the rotation may be free by then)."""
+        import time as _t
+        for wait in (60, 120, 240, 480):
+            _t.sleep(wait)
+            st = self.status(symbol)
+            if st.get("status") != "done":
+                return
+            pending = self._failed_sections(st)
+            if not pending:
+                break
+            for k in pending:
+                try:
+                    st = self.retry_section(symbol, k)
+                except Exception:  # noqa: BLE001
+                    pass
+            left = self._failed_sections(st)
+            st["auto_retry"] = {"pending": left, "next_in_s": None if not left else wait * 2}
+            self.store.put_research(f"{VERSION}:{symbol}", json.dumps(st, default=str))
+            if not left:
+                return
 
     def _run(self, job: dict) -> None:
         """Fast path: numbers first (seconds), documents downloaded and read in parallel, then the model sections in

@@ -73,6 +73,7 @@ export const RTABS = [["summary", "Summary"], ["business", "Business"], ["promis
   ["numbers", "Numbers"], ["cash", "Cash & debt"], ["case", "Bull & bear"], ["ask", "Ask"], ["sources", "Sources"]];
 
 export function researchDossier({ sym, d, tab = "summary", notes, asking, speechIn, listening }) {
+  AUTO = new Set(d?.auto_retry?.pending || []);
   const name = d?.name || sym;
   const running = d?.status === "running";
   const head = `<section class="r-head">${avatar(sym, name, true)}<div class="r-id"><h1>${esc(shortName(name))}</h1>
@@ -132,7 +133,8 @@ function pendingOr(d, id) {
   if (s.status === "failed") return `<p class="note">This step failed. Use Rebuild to try again.</p>`;
   return `<div class="skeleton" aria-hidden="true"><span></span><span></span><span></span></div><p class="note" role="status">${s.status === "running" ? "Working on it…" : "Waiting for earlier steps…"}</p>`;
 }
-function llmMsg(sec, id) { return sec?.message ? `<div class="retry"><p>This part couldn't be written just now: the free AI limit was reached.</p><button type="button" class="btn" data-act="r-retry" data-sec="${esc(id)}">Try again</button></div>` : sec?.dropped ? `<p class="caption">${sec.dropped} draft sentence${sec.dropped > 1 ? "s" : ""} removed: a number or citation couldn't be found in the source.</p>` : ""; }
+let AUTO = new Set();   // sections the server is re-writing in the background
+function llmMsg(sec, id) { return sec?.message ? `<div class="retry"><p>${AUTO.has(id) ? "The free AI models were busy, so FINN is writing this part again automatically. It appears here within a few minutes; you don't need to do anything." : "This part couldn't be written just now: the free AI models were busy."}</p><button type="button" class="btn" data-act="r-retry" data-sec="${esc(id)}">Try again</button></div>` : sec?.dropped ? `<p class="caption">${sec.dropped} draft sentence${sec.dropped > 1 ? "s" : ""} removed: a number or citation couldn't be found in the source.</p>` : ""; }
 
 function progress(d) {
   return `<div class="card r-progress" role="status" aria-live="polite"><ol>${d.steps.map((s) => `<li class="st-${s.status}"><span class="dot" aria-hidden="true">${STEP_ICON[s.status] || ""}</span><span>${esc(s.label)}${s.note ? ` <span class="muted">· ${esc(s.note)}</span>` : ""}</span></li>`).join("")}</ol>

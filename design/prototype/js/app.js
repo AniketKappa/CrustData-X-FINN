@@ -90,9 +90,10 @@ async function loadDecision() {
 // Called after holdings change: health, ranks and the morning briefing are recomputed on the next view.
 function invalidateDecision() {
   LIVE.dsAt = 0; LIVE.dsLoading = false; LIVE.phealth = undefined; LIVE.abrief = null; LIVE.sig.clear();
+  LIVE.stale = true; LIVE.holdingsStale = true;   // the Briefing (updates, news, biggest moves) reloads for the new list
   loadDecision();
   // A newly added stock's 10-year history arrives a few seconds later; recompute once it has.
-  setTimeout(() => { LIVE.dsAt = 0; LIVE.dsLoading = false; loadDecision(); }, 15000);
+  setTimeout(() => { LIVE.dsAt = 0; LIVE.dsLoading = false; LIVE.stale = true; loadDecision(); renderKeep(); }, 15000);
 }
 const sigState = (sym) => { if (!LIVE.sig.has(sym)) LIVE.sig.set(sym, {}); return LIVE.sig.get(sym); };
 async function loadWhy(sym) {
@@ -132,6 +133,13 @@ async function loadResearch(sym, force = false) {
       if (currentResearch() === sym) renderKeep();
     }
     if (currentResearch() === sym) renderKeep();
+    // Sections blocked by the free AI limits are re-written on the server; keep checking while the page is open.
+    for (let i = 0; i < 24 && d?.auto_retry?.pending?.length && currentResearch() === sym; i++) {
+      await new Promise((r) => setTimeout(r, 30000));
+      try { d = await getResearch(sym); } catch { continue; }
+      LIVE.research.set(sym, { data: d, at: Date.now() });
+      if (currentResearch() === sym) renderKeep();
+    }
   });
 }
 const currentResearch = () => { const { parts, params } = parse(); return parts[0] === "research" ? (params.get("c") || "").toUpperCase() : null; };
@@ -524,7 +532,7 @@ document.addEventListener("click", async (e) => {
     const { params } = parse(); stopSpeech();
     go(`#/briefing?w=${params.get("w") || "24h"}${ds.filter === "all" ? "" : `&f=${encodeURIComponent(ds.filter)}`}`); return;
   }
-  if (ds.sigtab) { sigState(ds.symbol).tab = ds.sigtab; renderKeep(); return; }
+  if (ds.sigtab) { const st = sigState(ds.symbol); st.tab = st.tab === ds.sigtab ? null : ds.sigtab; renderKeep(); return; }
   if (ds.htab) { S.hstate.htab = ds.htab; S.hstate.hopen = true; renderKeep(); return; }
   if (ds.group) { S.group = ds.group; try { localStorage.setItem("finn.group", ds.group); } catch { /* private mode */ } render(); return; }
   if (ds.more) { if (S.expanded.has(ds.more)) S.expanded.delete(ds.more); else S.expanded.add(ds.more); render(); return; }
