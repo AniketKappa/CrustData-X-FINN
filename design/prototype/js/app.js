@@ -26,7 +26,7 @@ const S = {
   settings: { ...DEFAULT_SETTINGS, ...store.get("settings", {}), categories: { ...DEFAULT_SETTINGS.categories, ...(store.get("settings", {}).categories || {}) } },
   marks: store.get("marks", { done: {}, snoozed: {} }),
   routineOpen: false, speaking: null, notes: [], filter: "all",
-  ptab: "hold", group: (() => { try { return localStorage.getItem("finn.group") || "company"; } catch { return "company"; } })(), editing: false, search: { q: "", results: null, note: null }, expanded: new Set(), selected: new Set(),
+  hstate: { htab: "how", hopen: false }, ptab: "hold", group: (() => { try { return localStorage.getItem("finn.group") || "company"; } catch { return "company"; } })(), editing: false, search: { q: "", results: null, note: null }, expanded: new Set(), selected: new Set(),
   add: { q: "", results: null, note: null }, rsearch: { q: "", results: null, note: null },
 };
 // Actions that talk to the server are locked while in flight, so repeated or simultaneous taps run them once.
@@ -308,7 +308,7 @@ function render() {
       const asOf = h.holdings.find((c) => c.signal?.as_of)?.signal.as_of;
       if (LIVE.on) loadDecision();
       html = portfolioV3({ holdings: h.holdings, watchlist: h.watchlist, tab: S.ptab, editing: S.editing, editable: LIVE.on && h.editable,
-        live: LIVE.on, asOf, query: S.search.q, selected: S.selected, ranks: LIVE.ranks, health: LIVE.phealth });
+        live: LIVE.on, asOf, query: S.search.q, selected: S.selected, ranks: LIVE.ranks, health: LIVE.phealth, hstate: S.hstate });
     }
     title = "Portfolio";
   } else if (top === "company" || top === "companies") {
@@ -524,6 +524,8 @@ document.addEventListener("click", async (e) => {
     const { params } = parse(); stopSpeech();
     go(`#/briefing?w=${params.get("w") || "24h"}${ds.filter === "all" ? "" : `&f=${encodeURIComponent(ds.filter)}`}`); return;
   }
+  if (ds.sigtab) { sigState(ds.symbol).tab = ds.sigtab; renderKeep(); return; }
+  if (ds.htab) { S.hstate.htab = ds.htab; S.hstate.hopen = true; renderKeep(); return; }
   if (ds.group) { S.group = ds.group; try { localStorage.setItem("finn.group", ds.group); } catch { /* private mode */ } render(); return; }
   if (ds.more) { if (S.expanded.has(ds.more)) S.expanded.delete(ds.more); else S.expanded.add(ds.more); render(); return; }
   if (t.classList.contains("tab-more")) { const bar = t.parentElement.querySelector(".tabbar"); bar?.scrollBy({ left: bar.clientWidth * 0.7, behavior: "smooth" }); return; }
@@ -648,3 +650,5 @@ async function boot() {
   if (h && h.mode === "live") refreshIfStale(h);
 }
 boot();
+// Keep the portfolio-health "See how this is calculated" panel open across re-renders.
+document.addEventListener("toggle", (e) => { if (e.target?.dataset?.hdetails) S.hstate.hopen = e.target.open; }, true);

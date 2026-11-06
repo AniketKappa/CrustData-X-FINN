@@ -254,7 +254,7 @@ export function aboutDataBody({ disclosures, sources }) {
 // Search finds any stock and opens its page. Changing the lists happens only in Edit, which has two actions:
 // Add (a sheet with its own search) and Delete (removes the ticked rows).
 const CHECK = `<svg class="ic sm" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10.5l3.2 3L15 6.5"/></svg>`;
-export function portfolioV3({ holdings, watchlist, tab, editing, editable, live, asOf, query, selected = new Set(), ranks = null, health = undefined }) {
+export function portfolioV3({ holdings, watchlist, tab, editing, editable, live, asOf, query, selected = new Set(), ranks = null, health = undefined, hstate = {} }) {
   const list = tab === "watch" ? watchlist : holdings;
   const listName = tab === "watch" ? "watchlist" : "holdings";
   const rowp = (c) => {
@@ -280,9 +280,9 @@ export function portfolioV3({ holdings, watchlist, tab, editing, editable, live,
       <button type="button" class="btn primary" data-act="open-add">${SRC.plus}Add</button>
       <button type="button" class="btn danger" data-act="delete-selected" ${n ? "" : "disabled"}>${SRC.trash}Delete${n ? ` ${n}` : ""}</button>
       <span class="note">${n ? `${n} selected` : "Tick stocks to delete"}</span></div>` : ""}
-    ${live && tab !== "watch" && !editing ? healthCard(health) : ""}
+    ${live && tab !== "watch" && !editing ? healthCard(health, hstate) : ""}
     <div class="card list">${list.map(rowp).join("") || `<div class="empty-card">No stocks here yet.${editable ? " Tap Edit, then Add." : ""}</div>`}</div>
-    ${ranks ? `<p class="caption">The number by each price is FINN Rank (1–10) vs the stocks FINN tracks. ${esc(CAVEAT)}</p>${rankFormula(Object.keys(ranks).length)}` : ""}
+    ${ranks ? `<p class="caption">The number by each price is FINN Rank (1–10) vs the stocks FINN tracks. ${esc(CAVEAT)}</p>` : ""}
     ${!editable && !live ? `<p class="note">Run FINN's backend to change your lists; this view shows the demo list.</p>` : ""}
 `;
 }

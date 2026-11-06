@@ -757,3 +757,27 @@ body { font-family: var(--sans); font-size: 15px; line-height: 1.45; letter-spac
 .co-tiles, .fold { padding-left: calc(var(--s-4) + 82px); }
 .sig-why { margin: 2px 0 4px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.45; }
 @media (max-width: 520px) { .co-tiles, .fold { padding-left: var(--s-4); } }
+
+/* ---------- FINN Signal / health: tabs and tables ---------- */
+.sig-tabs { margin: 12px 0 4px; display: inline-flex; flex-wrap: wrap; }
+.sig-body { margin-top: 8px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5; }
+.sig-p { margin: 6px 0 10px; }
+.sig-h { margin: 14px 0 6px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink); }
+.sig-steps { margin: 4px 0 10px; padding-left: 20px; }
+.sig-steps li + li { margin-top: 6px; }
+.sig-t { width: 100%; border-collapse: collapse; margin: 8px 0 12px; font-size: var(--fs-sm); }
+.sig-t caption { text-align: left; font-weight: 600; color: var(--ink); padding: 6px 0; }
+.sig-t th, .sig-t td { text-align: left; vertical-align: top; padding: 7px 8px 7px 0; border-top: 1px solid var(--rule); }
+.sig-t thead th { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; border-top: 0; }
+.sig-t tbody th { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.sig-t .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sig-t tfoot td, .sig-t tfoot th { border-top: 1px solid var(--rule-2); color: var(--ink); }
+.sig-t .gr { font-size: var(--fs-sm); font-weight: 700; }
+.sig-t .mean { display: block; color: var(--muted); font-size: var(--fs-xs); }
+.sig-total { margin: 6px 0 0; padding: 10px 12px; background: #F8FAFC; border-radius: var(--r-sm); color: var(--ink); }
+.sig-total p { margin: 2px 0; }
+.hdetails { margin-top: 6px; }
+.hdetails > summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 600; color: var(--accent); }
+.hc { margin: 10px 0 0; font-size: var(--fs-sm); color: var(--ink-2); }
+.hc p { margin: 0; }
+@media (max-width: 520px) { .sig-t th, .sig-t td { padding-right: 6px; } .sig-t tbody th { white-space: normal; } }

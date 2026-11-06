@@ -76,12 +76,9 @@ class DecisionService:
 
     # ------------------------------------------------------------ history
     def universe(self) -> list[str]:
-        """Stocks the rank is computed against: everything tracked now plus every stock tracked at start-up or added
-        since. Removing a holding keeps it in this reference set, so removing a weak stock can't lower the others'
-        percentiles (which made portfolio health move the wrong way)."""
-        now = self.p.tracked()
-        self._reference.update(now)
-        return now + sorted(self._reference - set(now))
+        """FINN Rank compares the stocks in your portfolio (holdings + watchlist) with each other, so it changes
+        whenever you add or delete a stock. Portfolio health uses fixed scales instead (decision.ABS_SCALES)."""
+        return self.p.tracked()
 
     def backfill_symbols(self, symbols: list[str], years: Optional[int] = None) -> dict:
         """Long history for stocks added after start-up, so they get a rank straight away."""

@@ -281,6 +281,34 @@ FACTOR_INFO = {
 }
 
 
+# Fixed scales for portfolio health (not relative to other stocks): value at 0 points -> value at 100 points,
+# straight line in between, capped at 0 and 100. Rules of thumb chosen by FINN, shown in the app.
+ABS_SCALES = {
+    "mom_12_1": (-0.30, 0.30), "mom_6_1": (-0.20, 0.20), "high_52w": (0.60, 1.00), "vol_1y": (0.50, 0.15),
+    "quality_roe": (0.0, 25.0), "quality_roce": (0.0, 30.0), "quality_cfo_pat": (0.5, 1.2), "quality_de": (2.0, 0.0),
+    "value_ep": (0.01, 0.08), "value_bp": (0.05, 1.00),
+}
+
+
+def abs_score(k: str, v: Optional[float]) -> Optional[float]:
+    if v is None or k not in ABS_SCALES:
+        return None
+    lo, hi = ABS_SCALES[k]
+    return max(0.0, min(100.0, 100.0 * (v - lo) / (hi - lo)))
+
+
+def abs_scores(o: dict) -> dict:
+    """Group and overall scores on the fixed scales (same groups and weights as FINN Rank)."""
+    groups = {}
+    for g, keys in GROUPS.items():
+        xs = [abs_score(k, o["raw"].get(k)) for k in keys]
+        xs = [x for x in xs if x is not None]
+        groups[g] = sum(xs) / len(xs) if xs else None
+    av = {g: v for g, v in groups.items() if v is not None}
+    w = sum(WEIGHTS[g] for g in av)
+    return {"groups": groups, "overall": (sum(WEIGHTS[g] * v for g, v in av.items()) / w) if len(av) >= 2 else None}
+
+
 def fmt_factor(k: str, v: Optional[float]) -> Optional[str]:
     if v is None:
         return None
@@ -338,6 +366,28 @@ _PLAIN = {"momentum": ("price trend", "stronger", "weaker"), "quality": ("busine
           "value": ("valuation", "cheaper", "pricier"), "safety": ("price stability", "steadier", "more volatile")}
 
 
+def headline(o: dict) -> str:
+    """The plain sentence shown instead of a label: what is good and what is not, in everyday words."""
+    if o["rank"] is None:
+        return "Not enough data yet to rank this stock."
+    words = {"momentum": ("its price has been rising", "its price has been falling behind"),
+             "quality": ("the business is profitable and sound", "the business is weaker on profit or debt"),
+             "safety": ("its price is steady", "its price swings a lot"),
+             "value": ("the share looks cheap for what it earns", "the share looks expensive for what it earns")}
+    good = [words[g][0] for g in ("momentum", "quality", "safety", "value") if (o["groups"].get(g) or 0) >= 60]
+    bad = [words[g][1] for g in ("momentum", "quality", "safety", "value")
+           if o["groups"].get(g) is not None and o["groups"][g] < 40]
+    join = lambda xs: xs[0] if len(xs) == 1 else ", ".join(xs[:-1]) + " and " + xs[-1]  # noqa: E731
+    lead = {True: "Ranks high", False: "Ranks low"}[o["rank"] >= 6] if o["rank"] not in (5,) else "Ranks in the middle"
+    if good and bad:
+        return f"{lead}: {join(good)}, but {join(bad)}."
+    if good:
+        return f"{lead}: {join(good)}."
+    if bad:
+        return f"{lead}: {join(bad)}."
+    return f"{lead}: nothing stands out; most measures are close to the middle of your portfolio."
+
+
 def label_reason(o: dict) -> Optional[str]:
     """One plain sentence under the label: each group's verdict with its most telling measure, e.g.
     'Cheap: earnings yield 9.1% is cheaper than 85% of FINN's stocks. Weak business: ROE 7.2% is worse than 80%.'"""
@@ -371,6 +421,10 @@ def rank_payload(symbol: str, o: dict, universe_size: int, as_of: Optional[str])
         "measures": measures(o),
         "reasons": rank_reasons(o, universe_size),
         "label_reason": label_reason(o),
+        "headline": headline(o),
+        "composite_score": None if o["composite"] is None else round(o["composite"], 1),
+        "absolute": {k: (None if v is None else round(v, 1)) if not isinstance(v, dict) else
+                     {g: (None if x is None else round(x, 1)) for g, x in v.items()} for k, v in abs_scores(o).items()},
         "data": {"price_as_of": o["price_as_of"], "fundamentals_retrieved_at": o["fundamentals_retrieved_at"],
                  "stale": o["stale"], "insufficient": o["insufficient"]},
         "universe_size": universe_size, "model_version": MODEL_VERSION, "caveat": RANK_CAVEAT,
@@ -642,7 +696,8 @@ HEALTH_FORMULA = ("Health = 50% Stock strength + 20% Filing risk + 15% Diversifi
 def portfolio_health(h: HealthInputs) -> dict:
     """One fixed formula over the CURRENT holdings (equal weights: FINN stores no quantities).
 
-    Stock strength   = average FINN Rank composite percentile of the ranked holdings.
+    Stock strength   = average of the holdings' fixed-scale scores (ABS_SCALES), so it doesn't depend on which
+                       other stocks are in the portfolio.
     Filing risk      = 100 x (1 - (holdings with a red flag + 0.5 x holdings with only amber flags) / holdings).
     Diversification  = 100 x (1 - HHI) / (1 - 1/N), HHI = sum of squared sector shares (N = holdings).
     Trend breadth    = share of ranked holdings whose momentum percentile is 40 or more (not a weak trend).
@@ -652,9 +707,10 @@ def portfolio_health(h: HealthInputs) -> dict:
     n = len(syms)
     if n == 0:
         return {"ok": False, "reason": "no holdings"}
-    ranked = [s for s in syms if h.ranks.get(s, {}).get("composite_pct") is not None]
+    absv = {s: (h.ranks.get(s, {}).get("absolute") or {}).get("overall") for s in syms}
+    ranked = [s for s in syms if absv.get(s) is not None]
     pending = [s for s in syms if s not in ranked]
-    strength = sum(h.ranks[s]["composite_pct"] for s in ranked) / len(ranked) if ranked else None
+    strength = sum(absv[s] for s in ranked) / len(ranked) if ranked else None
 
     seen: dict[str, dict] = {}
     for f in h.flags:
@@ -689,10 +745,10 @@ def portfolio_health(h: HealthInputs) -> dict:
     r1 = lambda v: None if v is None else round(v, 1)  # noqa: E731
     components = [
         {"key": "strength", "label": "Stock strength", "weight": 50, "value": r1(strength),
-         "how": f"Average FINN Rank percentile of your {len(ranked)} ranked holding{'s' if len(ranked) != 1 else ''}"
-                + (f" ({len(pending)} still loading history: {', '.join(pending[:5])})" if pending else ""),
-         "items": [{"symbol": s, "text": f"FINN Rank {h.ranks[s]['rank']}/10 · {round(h.ranks[s]['composite_pct'])}th "
-                                         "percentile"} for s in sorted(ranked, key=lambda s: h.ranks[s]["composite_pct"])]},
+         "how": f"Average fixed-scale score of your {len(ranked)} holding{'s' if len(ranked) != 1 else ''} (each stock: "
+                "momentum 35%, quality 30%, safety 20%, value 15%, every measure scored 0–100 on a fixed scale)"
+                + (f". {len(pending)} still loading history: {', '.join(pending[:5])}" if pending else ""),
+         "items": [{"symbol": s, "text": f"{round(absv[s])}/100"} for s in sorted(ranked, key=lambda s: absv[s])]},
         {"key": "filings", "label": "Filing risk", "weight": 20, "value": r1(filings),
          "how": f"100 × (1 − (holdings with a red flag {len(red_syms)} + ½ × holdings with only amber flags "
                 f"{len(amber_syms)}) ÷ {n} holdings). Red: defaults, regulator or court orders, auditor or CEO/CFO "
@@ -711,7 +767,10 @@ def portfolio_health(h: HealthInputs) -> dict:
     ]
     for c in components:
         c["contribution"] = None if c["value"] is None else round(HEALTH_WEIGHTS[c["key"]] * c["value"] / wsum, 1)
+    scales = [{"group": FACTOR_INFO[k][0], "label": FACTOR_INFO[k][1], "zero": fmt_factor(k, lo) if k != "high_52w" else f"{lo*100:.0f}%",
+               "full": fmt_factor(k, hi) if k != "high_52w" else f"{hi*100:.0f}%"} for k, (lo, hi) in ABS_SCALES.items()]
     return clean({"ok": True, "score": round(score), "formula": HEALTH_FORMULA, "components": components,
+                  "scales": scales, "weights_total": round(wsum * 100),
                   "holdings": n, "ranked": len(ranked), "pending": pending, "weighting": "equal",
                   "sectors": dict(sorted(sec.items(), key=lambda kv: -kv[1])),
                   "red_flags": fl("red"), "amber_flags": fl("amber"),

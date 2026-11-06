@@ -252,7 +252,8 @@ def test_fallback_text():
 
 # ---------------------------------------------------------------- portfolio health
 def _hin(symbols, comp, mom=None, flags=(), sectors=None):
-    ranks = {s: {"composite_pct": comp[s], "rank": 5, "groups": {"momentum": (mom or {}).get(s, 50.0)}} for s in comp}
+    ranks = {s: {"composite_pct": comp[s], "rank": 5, "absolute": {"overall": comp[s]},
+                 "groups": {"momentum": (mom or {}).get(s, 50.0)}} for s in comp}
     return HealthInputs(symbols=symbols, ranks=ranks, flags=list(flags),
                         sectors=sectors or {s: f"Sector {i}" for i, s in enumerate(symbols)})
 
